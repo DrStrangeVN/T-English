@@ -80,7 +80,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', borderBottom: '1px solid var(--line)', gap: 12 }}>
           <div>
             <div style={{ fontWeight: 600 }}>Reduce Transparency (Trợ năng &amp; Tiết kiệm Pin)</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
@@ -92,6 +92,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               type="checkbox"
               checked={settings.reduceTransparency}
               onChange={(e) => onUpdateSettings({ reduceTransparency: e.target.checked })}
+            />
+            <i />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 18px', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 600 }}>Âm thanh Tương tác (Web Audio Mechanical Click &amp; Chime)</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              Phát tiếng phím cơ nhẹ khi gõ Qwerty và chuông hoàn thành FSRS / Mission
+            </div>
+          </div>
+          <label className="sw">
+            <input
+              type="checkbox"
+              checked={settings.soundEffectsEnabled}
+              onChange={(e) => onUpdateSettings({ soundEffectsEnabled: e.target.checked })}
             />
             <i />
           </label>

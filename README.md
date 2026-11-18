@@ -1,15 +1,17 @@
-# T-English — Siêu Ứng Dụng Học Tiếng Anh (iPhone & Mac)
+# T-English v2.0 — Siêu Ứng Dụng Học Tiếng Anh (iPhone & Mac)
 
 Ứng dụng học tiếng Anh đa nền tảng chạy song song trên **macOS (AppKit + NSVisualEffectView + WKWebView)** và **iPhone (iOS Capacitor + PWA)**, tuân thủ thiết kế **Minimal Specular Liquid Glass (macOS Tahoe 26)**.
 
-## Tính năng Cốt lõi (Hợp nhất tinh hoa từ 8 app thương mại & 6 repo mã nguồn mở)
-1. **Command Center Dashboard**: KPI 4 cột chuẩn Geist 1px Structural Grid, đồng hồ tích lũy 1,000 giờ, Smart Daily Study Queue 25 phút, dự báo tải lượng FSRS 14 ngày & Ma trận 44 âm vị IPA kèm hướng dẫn khẩu hình tiếng Việt.
-2. **AI Phonetics & Shadowing Studio**: Chấm điểm phát âm từng âm vị IPA, biểu đồ đường cao độ giọng nói (Pitch Contour F0), sóng âm AB-Loop (`Space`, `R`, `L`) và mẹo nối âm.
-3. **Real-Time AI Roleplay & Live Tutor**: 3 chế độ (Pattern Drills, Roleplay IT/IELTS Part 2 có đồng hồ đếm ngược, Free Talk) kèm **AI Long-Term Memory Ledger**, sửa lỗi trực tiếp, nâng cấp câu lên mức C1/Native và nút **Explain My Mistake**.
-4. **FSRS v5 Smart Flashcards & Sentence Miner**: Thuật toán lặp lại ngắt quãng FSRS v5 (Stability $S$, Difficulty $D$, Retrievability $R$), thẻ Cloze đa tầng, thanh **Batch Bar** nổi (`99px`) và xuất CSV chuẩn Anki.
-5. **Immersive Reader & Dual-Sub Media Studio**: Đọc bài/xem transcript song ngữ tương tác từng từ, **Popover tra từ kính mờ 364px**, 5 mức độ thuộc từ LingQ và **AI Syntax & Grammar X-Ray**.
-6. **Qwerty Dictation & Muscle-Memory Lab**: Gõ từ vựng tốc độ cao (sai tự động reset từ) & nghe chép chính tả IELTS/TED tính WPM và Accuracy.
-7. **`⌘K` Command Palette & macOS Menu Bar Popover (364px)**: Tra từ nhanh, ôn thẻ FSRS ngay trên thanh Menu Bar macOS và chuyển đổi tức thì khung xem **Mac / iPhone 390×844 / 364px**.
+## Toàn Bộ Hệ Sinh Thái Tính Năng (v2.0)
+1. **Command Center Dashboard**: KPI 4 cột chuẩn Geist 1px Structural Grid, **Heatmap 365 ngày**, Ma trận 6 kỹ năng CEFR, đồng hồ 1,000 giờ, Smart Daily Study Queue 25 phút, dự báo FSRS 14 ngày & Heatmap 44 âm vị IPA.
+2. **CEFR Curriculum & Placement Test**: Bài kiểm tra xếp lớp 12 câu (`A1 → C2`) kèm cây 6 Unit Ngữ pháp–Giao tiếp (*Test-English + Babbel*), viết lại câu Transformation Drill & Quiz mở khóa.
+3. **AI Phonetics, Minimal Pairs & Shadowing Studio**: Sơ đồ mặt cắt khoang miệng **SVG động (`VocalTractSVG`)**, luyện **12 cặp âm Minimal Pairs** kèm Ear Training Quiz, **Coach Shane Connected Speech Breakdown**, Pitch Contour $F_0$ & AB-Loop (`Space`, `R`, `L`).
+4. **Real-Time AI Roleplay & Live Tutor**: 8 kịch bản thực chiến (*System Design, Daily Standup, IELTS Full 3-Part Mock, Pattern Drills*) kèm **3-Star Mission Checklist**, chế độ **Live Voice Call**, AI Long-Term Memory Ledger & **Explain My Mistake**.
+5. **IELTS Writing & Ludwig Context Studio**: Chia đôi màn hình kiểu *Cambridge Write & Improve* — chấm điểm 4 tiêu chí IELTS (`Task Response, Coherence, Lexical, Grammar`), **In-Line Diff**, đối chiếu bài mẫu Band 6.5 vs 8.5 và bộ tìm kiếm ngữ cảnh **Ludwig.guru** (`*` / `vs`).
+6. **FSRS v5, YouGlish & Membean Word Roots**: 24 thẻ đa tầng (*US / UK / AUS* YouGlish context), **12 gốc từ Hy Lạp/Latin (`WordRootGraph` 72 từ phái sinh)**, phím tắt `Space`/`1`/`2`/`3`/`4`, Batch Bar (`99px`) & xuất CSV chuẩn Anki.
+7. **Engoo 5-Step Dual-Sub Reader**: Đọc báo theo quy trình 5 bước (*Key Vocabulary → Đọc & Nghe Song ngữ phím `A`/`S`/`D` → Comprehension Quiz → Thảo luận AI*), Popover tra từ `364px` & Grammar X-Ray.
+8. **Monkeytype Qwerty & DailyDictation Lab**: 60 từ vựng 6 bộ đề, Zen Focus Mode, âm thanh phím cơ Web Audio API, sparkline WPM & nghe chép 8 bài nối âm.
+9. **`⌘K` Command Palette, `364px` macOS Menu Bar Popover & Floating Mini-Dock**: Tích hợp tìm kiếm Ludwig ngay trong `⌘K`, đồng hồ Pomodoro `25:00` và Audio Loop nổi xuyên suốt.
 
 ## Cài đặt & Chạy trên Mac / iPhone
 
@@ -20,12 +22,12 @@ npm install
 # Chạy bản dev trên trình duyệt
 npm run dev
 
-# Chạy kiểm thử tự động (FSRS v5, IPA Scorer, AI Tutor)
+# Chạy 16 unit tests (FSRS v5, IPA Scorer, AI Tutor, Writing Evaluator, Ludwig, CEFR)
 npm run test
 
 # Đóng gói & cài đặt T-English.app trực tiếp lên macOS
 npm run build:macos
 
-# Đồng bộ dự án iPhone (Capacitor iOS — yêu cầu máy có cài Xcode để mở Simulator/iPhone)
+# Đồng bộ dự án iPhone (Capacitor iOS — yêu cầu máy có cài Xcode + CocoaPods)
 npm run sync:ios
 ```

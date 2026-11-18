@@ -5,7 +5,7 @@ import { computeRetrievability, forecastWorkload } from '../../core/fsrs/fsrsEng
 import { IPA_44_PHONEMES, mapScoreToIeltsBand } from '../../core/phonetics/ipaScorer';
 import type { StudyStats } from '../../core/storage/db';
 import { speakEnglish } from '../../core/phonetics/speechIO';
-import { IconCheck, IconPlay, IconVolume } from '../icons/Icons';
+import { IconCheck, IconCurriculum, IconPen, IconPlay, IconVolume } from '../icons/Icons';
 
 interface DashboardViewProps {
   cards: FsrsCard[];
@@ -22,7 +22,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigate,
   onToggleDailyStep,
 }) => {
-  const [selectedPhoneme, setSelectedPhoneme] = useState(IPA_44_PHONEMES[30]); // /θ/ default
+  const [selectedPhoneme, setSelectedPhoneme] = useState(IPA_44_PHONEMES[30]); // /θ/
 
   const metrics = useMemo(() => {
     const now = Date.now();
@@ -68,6 +68,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const forecast = useMemo(() => forecastWorkload(cards, 14), [cards]);
   const maxDue = Math.max(4, ...forecast.map((f) => f.dueCount));
 
+  // Deterministic 364-day (52 weeks x 7 days) Anki/GitHub activity heatmap
+  const heatmapWeeks = useMemo(() => {
+    return Array.from({ length: 52 }, (_, w) =>
+      Array.from({ length: 7 }, (_, d) => {
+        const dayIdx = w * 7 + d;
+        const isRecentStreak = dayIdx >= 364 - stats.streakDays;
+        const level = isRecentStreak
+          ? ((dayIdx % 3) + 2)
+          : (dayIdx * 7 + w * 3) % 5 === 0
+            ? 0
+            : ((dayIdx + w) % 4);
+        return { dayIdx, level };
+      })
+    );
+  }, [stats.streakDays]);
+
+  const skillMatrix = [
+    { name: 'Listening & Dictation', score: 86, tab: 'qwerty' as NavTab, color: 'var(--cyan)' },
+    { name: 'Speaking & Roleplay', score: 84, tab: 'tutor' as NavTab, color: 'var(--green)' },
+    { name: 'Phonetics & IPA', score: metrics.avgPron, tab: 'shadowing' as NavTab, color: 'var(--indigo)' },
+    { name: 'Reading (Engoo 5-Step)', score: 90, tab: 'reader' as NavTab, color: 'var(--cyan)' },
+    { name: 'Writing (IELTS & RFC)', score: 78, tab: 'writing' as NavTab, color: 'var(--amber)' },
+    { name: 'Lexical & FSRS Recall', score: Math.round(metrics.avgRet), tab: 'fsrs' as NavTab, color: 'var(--green)' },
+  ];
+
   const dailySteps: Array<{
     id: string;
     title: string;
@@ -77,38 +102,70 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }> = [
     {
       id: 'step-fsrs',
-      title: '1. Ôn thẻ FSRS v5 đến hạn',
+      title: '1. Ôn thẻ FSRS v5 đến hạn (kèm YouGlish & Gốc từ)',
       duration: '5 phút',
       detail: `${metrics.dueCount + metrics.newCount} thẻ cần xử lý để giữ Retention ${metrics.avgRet}%`,
       targetTab: 'fsrs',
     },
     {
       id: 'step-ipa',
-      title: '2. Luyện phát âm 5 âm vị yếu',
+      title: '2. Luyện Minimal Pairs & Sơ đồ Khoang miệng IPA',
       duration: '5 phút',
       detail: `Tập trung sửa khẩu hình âm ${metrics.weakestPhoneme}`,
       targetTab: 'shadowing',
     },
     {
       id: 'step-shadow',
-      title: '3. Shadowing AB-Loop & Pitch F0',
+      title: '3. Đọc tin Engoo 5 Bước & Chép Connected Speech',
       duration: '8 phút',
-      detail: 'Nhại giọng theo sóng âm bản xứ ở tốc độ 0.9x → 1.0x',
-      targetTab: 'shadowing',
+      detail: 'Đọc báo song ngữ, giải quiz và đào câu sang FSRS',
+      targetTab: 'reader',
     },
     {
       id: 'step-tutor',
-      title: '4. Hội thoại AI Roleplay ứng dụng từ mới',
+      title: '4. AI Roleplay (3-Mission) hoặc Viết IELTS In-Line Diff',
       duration: '7 phút',
-      detail: 'Thực hành ngay với AI Memory Ledger & Explain My Mistake',
+      detail: 'Hoàn thành 3 nhiệm vụ nói hoặc chấm điểm 4 tiêu chí IELTS Writing',
       targetTab: 'tutor',
     },
   ];
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Quick Launch Strip for Placement Test, Curriculum & Writing Studio */}
+      <div
+        className="panel"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          flexWrap: 'wrap',
+          padding: '11px 16px',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="tag" style={{ color: 'var(--cyan)', background: 'var(--cyan-s)', fontWeight: 700 }}>
+            CEFR {stats.cefrLevel}
+          </span>
+          <span style={{ fontSize: 12.5, fontWeight: 600 }}>
+            Lộ trình Cá nhân hóa ({stats.completedUnitIds.length}/6 Units hoàn thành)
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="gb sm" onClick={() => onNavigate('curriculum')}>
+            <IconCurriculum size={13} />
+            <span>Kiểm tra Xếp lớp &amp; Lộ trình CEFR</span>
+          </button>
+          <button type="button" className="pb sm" onClick={() => onNavigate('writing')}>
+            <IconPen size={13} />
+            <span>Mở IELTS Writing &amp; Ludwig Studio</span>
+          </button>
+        </div>
+      </div>
+
       {/* 4-Column Geist 1px Structural Grid KPI Strip */}
-      <div className="geist-grid cols-4">
+      <div className="geist-grid cols-4" style={{ marginBottom: 0 }}>
         <div className="geist-cell">
           <div className="kpi-label">
             <span>FSRS Memory Retention</span>
@@ -145,7 +202,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="kpi-label">
             <span>Active Vocabulary</span>
             <span className="tag" style={{ color: 'var(--indigo)', background: 'var(--indigo-s)' }}>
-              CEFR B2+
+              CEFR {stats.cefrLevel}
             </span>
           </div>
           <div className="kpi-val">{metrics.totalVocab.toLocaleString()}</div>
@@ -174,14 +231,92 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
+      {/* 365-Day Anki/GitHub Activity Heatmap + 6-Skill CEFR Matrix */}
+      <div className="split-2">
+        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="ph" style={{ marginBottom: 0 }}>
+            <div>
+              <b>Biểu đồ Nhiệt Học tập 365 Ngày (Consistency Heatmap)</b>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Chuỗi liên tiếp {stats.streakDays} ngày · 52 tuần tích lũy 1,000 giờ
+              </div>
+            </div>
+            <span className="tag" style={{ color: 'var(--green)', background: 'var(--green-s)' }}>
+              Active Daily
+            </span>
+          </div>
+
+          <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(52, 9px)', gap: 2.5, minWidth: 580 }}>
+              {heatmapWeeks.map((week, wIdx) => (
+                <div key={wIdx} style={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+                  {week.map((day) => {
+                    const bg =
+                      day.level === 0
+                        ? 'var(--raised)'
+                        : day.level === 1
+                          ? 'rgba(52, 211, 153, 0.25)'
+                          : day.level === 2
+                            ? 'rgba(52, 211, 153, 0.55)'
+                            : 'var(--green)';
+                    return (
+                      <div
+                        key={day.dayIdx}
+                        style={{
+                          width: 9,
+                          height: 9,
+                          borderRadius: 2.5,
+                          background: bg,
+                          border: '1px solid var(--line)',
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="ph" style={{ marginBottom: 0 }}>
+            <b>Ma trận 6 Kỹ năng Toàn diện</b>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {skillMatrix.map((sk) => (
+              <button
+                key={sk.name}
+                type="button"
+                onClick={() => onNavigate(sk.tab)}
+                style={{
+                  textAlign: 'left',
+                  padding: '8px 10px',
+                  borderRadius: 10,
+                  border: '1px solid var(--line)',
+                  background: 'var(--raised)',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                  <span style={{ color: 'var(--muted)' }}>{sk.name}</span>
+                  <b style={{ color: sk.color }}>{sk.score}%</b>
+                </div>
+                <div className="bar" style={{ marginTop: 0 }}>
+                  <div style={{ width: `${sk.score}%`, background: sk.color }} />
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Smart Daily Study Queue + 14-Day FSRS Forecast */}
-      <div className="split-2" style={{ marginBottom: 14 }}>
+      <div className="split-2">
         <div className="panel">
           <div className="ph">
             <div>
               <b>Smart Daily Study Queue (25 phút/ngày)</b>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Hoàn thành đủ 4 chặng để tối ưu đường cong nhớ FSRS &amp; phản xạ nói
+                Hoàn thành đủ 4 chặng để tối ưu đường cong nhớ FSRS &amp; phản xạ thực chiến
               </div>
             </div>
             <span className="tag">
@@ -246,7 +381,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* 14-Day FSRS Workload & Retrievability Forecast */}
+        {/* 14-Day FSRS Workload Forecast */}
         <div className="panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div className="ph">
             <div>
@@ -266,7 +401,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               gridTemplateColumns: 'repeat(14, minmax(0, 1fr))',
               alignItems: 'end',
               gap: 5,
-              height: 140,
+              height: 150,
               padding: '12px 6px 4px',
               borderRadius: 12,
               background: 'var(--raised)',
@@ -274,7 +409,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             }}
           >
             {forecast.map((pt) => {
-              const barH = Math.max(8, Math.round((pt.dueCount / maxDue) * 96));
+              const barH = Math.max(8, Math.round((pt.dueCount / maxDue) * 102));
               return (
                 <div
                   key={pt.dayOffset}

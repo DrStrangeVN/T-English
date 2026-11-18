@@ -7,6 +7,13 @@
 export type FsrsRating = 1 | 2 | 3 | 4; // 1: Again, 2: Hard, 3: Good, 4: Easy
 export type CardState = 'new' | 'learning' | 'review' | 'relearning';
 
+export interface YouGlishClip {
+  accent: 'US' | 'UK' | 'AUS';
+  speaker: string;
+  timestamp: string;
+  sentence: string;
+}
+
 export interface FsrsCard {
   id: string;
   word: string;
@@ -24,6 +31,8 @@ export interface FsrsCard {
   deck: string;
   cefr: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
   sourceTitle?: string;
+  rootId?: string;
+  youglishContexts?: YouGlishClip[];
   state: CardState;
   stability: number;
   difficulty: number;

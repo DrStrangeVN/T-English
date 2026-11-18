@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { FsrsCard } from '../../core/fsrs/fsrsEngine';
 import type { NavTab } from '../../App';
-import { IconCards, IconSearch, IconSparkChat, IconVolume } from '../icons/Icons';
+import { searchLudwigCorpus } from '../../data/ludwigCorpus';
+import { IconCards, IconCurriculum, IconPen, IconSearch, IconSparkChat, IconVolume } from '../icons/Icons';
 import { speakEnglish } from '../../core/phonetics/speechIO';
 
 interface CommandPaletteProps {
@@ -35,7 +36,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     const q = query.trim().toLowerCase();
     const actions: Array<{
       id: string;
-      kind: 'Action' | 'Vocabulary';
+      kind: 'Action' | 'Vocabulary' | 'Ludwig';
       title: string;
       subtitle: string;
       badge: string;
@@ -45,7 +46,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         id: 'go-dash',
         kind: 'Action',
         title: 'Mở Command Center Dashboard',
-        subtitle: 'KPI 4 cột, đồng hồ 1,000 giờ & Heatmap 44 âm vị IPA',
+        subtitle: 'KPI 4 cột, Heatmap 365 ngày & Ma trận 44 âm vị IPA',
         badge: '⌘1',
         run: () => {
           onNavigate('dashboard');
@@ -53,11 +54,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         },
       },
       {
+        id: 'go-curr',
+        kind: 'Action',
+        title: 'Mở Lộ trình CEFR A1–C2 & Kiểm tra Xếp lớp',
+        subtitle: 'Placement Test 12 câu & Grammar Blueprint theo cấp độ',
+        badge: '⌘2',
+        run: () => {
+          onNavigate('curriculum');
+          onClose();
+        },
+      },
+      {
         id: 'go-shad',
         kind: 'Action',
-        title: 'Mở AI Phonetics & Shadowing Studio',
-        subtitle: 'Sóng âm, Pitch F0 & chấm điểm từng âm vị IPA',
-        badge: '⌘2',
+        title: 'Mở AI Phonetics, Minimal Pairs & Shadowing',
+        subtitle: 'Sơ đồ khoang miệng SVG, Pitch F0 & Connected Speech',
+        badge: '⌘3',
         run: () => {
           onNavigate('shadowing');
           onClose();
@@ -66,20 +78,31 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       {
         id: 'go-tutor',
         kind: 'Action',
-        title: 'Mở AI Roleplay & Live Tutor',
-        subtitle: 'Hội thoại thực chiến, IELTS Part 2 & Explain My Mistake',
-        badge: '⌘3',
+        title: 'Mở AI Roleplay (3-Mission & Live Call)',
+        subtitle: 'Hội thoại thực chiến, IELTS Full Mock & Explain My Mistake',
+        badge: '⌘4',
         run: () => {
           onNavigate('tutor');
           onClose();
         },
       },
       {
+        id: 'go-writing',
+        kind: 'Action',
+        title: 'Mở IELTS Writing & Ludwig Context Studio',
+        subtitle: 'Chấm điểm 4 tiêu chí IELTS, In-Line Diff & Band 6.5 vs 8.5',
+        badge: '⌘5',
+        run: () => {
+          onNavigate('writing');
+          onClose();
+        },
+      },
+      {
         id: 'go-fsrs',
         kind: 'Action',
-        title: 'Ôn tập FSRS v5 Flashcards',
-        subtitle: 'Lật thẻ đa tầng Cloze & Batch Bar quản lý từ',
-        badge: '⌘4',
+        title: 'Ôn tập FSRS v5 Flashcards & Bản đồ Gốc từ Membean',
+        subtitle: 'Lật thẻ Cloze kèm YouGlish US/UK/AUS & Batch Bar',
+        badge: '⌘6',
         run: () => {
           onNavigate('fsrs');
           onClose();
@@ -88,9 +111,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       {
         id: 'go-reader',
         kind: 'Action',
-        title: 'Mở Immersive Dual-Sub Reader',
-        subtitle: 'Phụ đề song ngữ, Popover 364px & Grammar X-Ray',
-        badge: '⌘5',
+        title: 'Mở Engoo 5-Step Dual-Sub Reader',
+        subtitle: 'Đọc báo 5 bước, Popover 364px & Grammar X-Ray',
+        badge: '⌘7',
         run: () => {
           onNavigate('reader');
           onClose();
@@ -99,9 +122,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       {
         id: 'go-qwerty',
         kind: 'Action',
-        title: 'Mở Qwerty Dictation & Muscle-Memory Lab',
-        subtitle: 'Gõ từ vựng tốc độ cao & nghe chép chính tả',
-        badge: '⌘6',
+        title: 'Mở Monkeytype Qwerty & DailyDictation Lab',
+        subtitle: 'Gõ từ vựng Zen Mode, âm thanh phím cơ & nghe chép câu',
+        badge: '⌘8',
         run: () => {
           onNavigate('qwerty');
           onClose();
@@ -131,6 +154,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
       },
     ];
 
+    const ludwigMatches = q
+      ? searchLudwigCorpus(q)
+          .slice(0, 4)
+          .map((l) => ({
+            id: `lud-${l.id}`,
+            kind: 'Ludwig' as const,
+            title: `${l.preferredPhrase} (${l.preferredFreqPct}% chuẩn)`,
+            subtitle: `${l.queryPattern} — ${l.explanationVi}`,
+            badge: 'Ludwig',
+            run: () => {
+              onNavigate('writing');
+              onClose();
+            },
+          }))
+      : [];
+
     const matchedCards = cards
       .filter(
         (c) =>
@@ -139,7 +178,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           c.meaningVi.toLowerCase().includes(q) ||
           c.deck.toLowerCase().includes(q)
       )
-      .slice(0, 6)
+      .slice(0, 5)
       .map((c) => ({
         id: `card-${c.id}`,
         kind: 'Vocabulary' as const,
@@ -159,7 +198,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         )
       : actions;
 
-    return [...matchedCards, ...filteredActions];
+    return [...ludwigMatches, ...matchedCards, ...filteredActions];
   }, [query, cards, onNavigate, onClose, onToggleTheme, onCycleGlass]);
 
   if (!open) return null;
@@ -198,7 +237,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 items[selectedIdx].run();
               }
             }}
-            placeholder="Tra từ điển tức thì, mở phân hệ hoặc đổi giao diện..."
+            placeholder="Tra từ điển, tìm mẫu câu Ludwig (VD: mitigate * risk, depend on vs depend of)..."
             style={{ borderBottom: 'none' }}
           />
           <kbd style={{ marginRight: 14 }}>ESC</kbd>
@@ -218,7 +257,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 onClick={item.run}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                  {item.kind === 'Vocabulary' ? <IconVolume size={14} /> : item.id.includes('tutor') ? <IconSparkChat size={14} /> : <IconCards size={14} />}
+                  {item.kind === 'Vocabulary' ? (
+                    <IconVolume size={14} />
+                  ) : item.kind === 'Ludwig' ? (
+                    <IconPen size={14} />
+                  ) : item.id.includes('curr') ? (
+                    <IconCurriculum size={14} />
+                  ) : item.id.includes('tutor') ? (
+                    <IconSparkChat size={14} />
+                  ) : (
+                    <IconCards size={14} />
+                  )}
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.title}

@@ -17,9 +17,11 @@ import {
 import {
   IconBook,
   IconCards,
+  IconCurriculum,
   IconDashboard,
   IconKeyboard,
   IconLogo,
+  IconPen,
   IconSettings,
   IconSidebar,
   IconSparkChat,
@@ -29,17 +31,22 @@ import { TopHeader } from './components/layout/TopHeader';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { MenuBarPopover } from './components/layout/MenuBarPopover';
 import { SettingsView } from './components/layout/SettingsView';
+import { FloatingMiniDock } from './components/common/FloatingMiniDock';
 import { DashboardView } from './components/modules/DashboardView';
+import { CurriculumView } from './components/modules/CurriculumView';
 import { ShadowingStudio } from './components/modules/ShadowingStudio';
 import { AITutorView } from './components/modules/AITutorView';
+import { WritingStudioView } from './components/modules/WritingStudioView';
 import { FSRSDeckView } from './components/modules/FSRSDeckView';
 import { ImmersiveReader } from './components/modules/ImmersiveReader';
 import { QwertyDictation } from './components/modules/QwertyDictation';
 
 export type NavTab =
   | 'dashboard'
+  | 'curriculum'
   | 'shadowing'
   | 'tutor'
+  | 'writing'
   | 'fsrs'
   | 'reader'
   | 'qwerty'
@@ -52,44 +59,56 @@ const TAB_META: Record<
   dashboard: {
     label: 'Dashboard',
     title: 'Command Center',
-    subtitle: 'Tổng quan FSRS v5, IELTS Speaking Index & lộ trình 1,000 giờ',
-    badge: 'Tahoe 26',
+    subtitle: 'KPI FSRS v5, Heatmap 365 ngày, 6 Kỹ năng & lộ trình 1,000 giờ',
+    badge: 'v2.0 Tahoe',
+  },
+  curriculum: {
+    label: 'Lộ trình CEFR',
+    title: 'CEFR Path & Placement Test',
+    subtitle: 'Kiểm tra xếp lớp 12 câu & 6 chặng ngữ pháp thực chiến A1 → C2',
+    badge: 'Test-English',
   },
   shadowing: {
     label: 'Shadowing IPA',
-    title: 'AI Phonetics & Shadowing',
-    subtitle: 'Phân tích từng âm vị IPA, sóng âm AB-Loop & đường cao độ Pitch F0',
-    badge: 'CoreML / WebAudio',
+    title: 'AI Phonetics & Minimal Pairs',
+    subtitle: 'Sơ đồ khoang miệng SVG, Minimal Pairs, Pitch F0 & Connected Speech',
+    badge: 'Coach Shane',
   },
   tutor: {
     label: 'AI Roleplay',
     title: 'Real-Time AI Tutor',
-    subtitle: 'Hội thoại thực chiến, sửa lỗi tức thì & Explain My Mistake',
+    subtitle: '3-Star Roleplay Missions, Live Voice Call & Explain My Mistake',
     badge: 'Memory Ledger',
+  },
+  writing: {
+    label: 'Writing Studio',
+    title: 'IELTS Writing & Ludwig Studio',
+    subtitle: 'Chấm điểm 4 tiêu chí IELTS, In-Line Diff & tra cứu Ludwig.guru',
+    badge: 'Band 8.5 Lab',
   },
   fsrs: {
     label: 'FSRS Deck',
-    title: 'FSRS v5 Flashcards',
-    subtitle: 'Lặp lại ngắt quãng khoa học S/D/R & Sentence Miner đa tầng',
+    title: 'FSRS v5, YouGlish & Word Roots',
+    subtitle: 'Lặp lại ngắt quãng S/D/R, ví dụ US/UK/AUS & bản đồ gốc từ Membean',
     badge: 'FSRS v5',
   },
   reader: {
-    label: 'Dual-Sub Reader',
-    title: 'Immersive Reader Studio',
-    subtitle: 'Phụ đề song ngữ, Popover tra từ 364px & AI Grammar X-Ray',
-    badge: 'Comprehensible Input',
+    label: 'Engoo Reader',
+    title: 'Engoo 5-Step Dual-Sub Reader',
+    subtitle: 'Đọc báo 5 bước, Popover 364px, phím tắt A/S/D & Grammar X-Ray',
+    badge: '5-Step Flow',
   },
   qwerty: {
     label: 'Qwerty Lab',
-    title: 'Dictation & Muscle Memory',
-    subtitle: 'Luyện gõ từ vựng tốc độ cao & nghe chép chính tả IELTS',
-    badge: 'Typing Lab',
+    title: 'Monkeytype & DailyDictation',
+    subtitle: 'Gõ từ vựng Zen Mode, âm thanh phím cơ & nghe chép câu nối âm',
+    badge: '60+ Từ & 8 Bài',
   },
   settings: {
     label: 'Cài đặt',
     title: 'System & AI Preferences',
-    subtitle: 'Cấu hình Liquid Glass, FSRS Retention & AI Providers',
-    badge: 'Sync Local-First',
+    subtitle: 'Cấu hình Liquid Glass, Web Audio, FSRS Retention & AI Providers',
+    badge: 'Local-First',
   },
 };
 
@@ -101,6 +120,7 @@ export const App: React.FC = () => {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [preview, setPreview] = useState<ViewportPreview>('auto');
+  const [tutorSeedPrompt, setTutorSeedPrompt] = useState<string | null>(null);
 
   const isMenuBarUrlMode = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -117,12 +137,10 @@ export const App: React.FC = () => {
     return () => window.clearTimeout(t);
   }, [toast]);
 
-  // Persist state locally
   useEffect(() => {
     saveState(state);
   }, [state]);
 
-  // Apply Liquid Glass classes on <body> & notify macOS native host
   useEffect(() => {
     const body = document.body;
     const { theme, glass, reduceTransparency } = state.settings;
@@ -147,11 +165,10 @@ export const App: React.FC = () => {
       theme,
       glass,
       reduceTransparency,
-      statusSummary: `${state.stats.streakDays}d streak · ${dueCount} due`,
+      statusSummary: `${state.stats.streakDays}d streak · ${dueCount} due · CEFR ${state.stats.cefrLevel}`,
     });
-  }, [state.settings, state.cards, state.stats.streakDays, sidebarCollapsed, mobileDrawerOpen]);
+  }, [state.settings, state.cards, state.stats.streakDays, state.stats.cefrLevel, sidebarCollapsed, mobileDrawerOpen]);
 
-  // Keyboard shortcuts: Cmd+K, Cmd+\, Cmd+1..7
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -163,12 +180,14 @@ export const App: React.FC = () => {
       } else if (e.metaKey || e.ctrlKey) {
         const idxMap: Record<string, NavTab> = {
           '1': 'dashboard',
-          '2': 'shadowing',
-          '3': 'tutor',
-          '4': 'fsrs',
-          '5': 'reader',
-          '6': 'qwerty',
-          '7': 'settings',
+          '2': 'curriculum',
+          '3': 'shadowing',
+          '4': 'tutor',
+          '5': 'writing',
+          '6': 'fsrs',
+          '7': 'reader',
+          '8': 'qwerty',
+          '9': 'settings',
         };
         if (idxMap[e.key]) {
           e.preventDefault();
@@ -243,6 +262,26 @@ export const App: React.FC = () => {
       deck: input.deck,
       cefr: 'C1',
       sourceTitle: input.sourceTitle,
+      youglishContexts: [
+        {
+          accent: 'US',
+          speaker: 'Immersion Clip',
+          timestamp: '01:05',
+          sentence: input.clozeSentence.replace(/\{\{|\}\}/g, ''),
+        },
+        {
+          accent: 'UK',
+          speaker: 'BBC Study Context',
+          timestamp: '03:20',
+          sentence: `Notice how "${input.word}" clarifies meaning in natural prose.`,
+        },
+        {
+          accent: 'AUS',
+          speaker: 'Melbourne Talk',
+          timestamp: '04:12',
+          sentence: `Try using "${input.word}" during your next speaking session.`,
+        },
+      ],
       state: 'new',
       stability: 0,
       difficulty: 0,
@@ -281,6 +320,17 @@ export const App: React.FC = () => {
     });
   };
 
+  const addStudyMinutes = useCallback((mins: number) => {
+    setState((prev) => ({
+      ...prev,
+      stats: {
+        ...prev.stats,
+        dailyMinutesDone: prev.stats.dailyMinutesDone + mins,
+        immersionMinutes: prev.stats.immersionMinutes + mins,
+      },
+    }));
+  }, []);
+
   const navigateTo = (tab: NavTab) => {
     setActiveTab(tab);
     setMobileDrawerOpen(false);
@@ -298,20 +348,21 @@ export const App: React.FC = () => {
 
   const navItems: Array<{ id: NavTab; label: string; badge?: string; icon: React.ReactNode }> = [
     { id: 'dashboard', label: 'Dashboard', icon: <IconDashboard size={15} /> },
+    { id: 'curriculum', label: 'Lộ trình CEFR', badge: state.stats.cefrLevel, icon: <IconCurriculum size={15} /> },
     { id: 'shadowing', label: 'Shadowing IPA', icon: <IconWaveform size={15} /> },
     { id: 'tutor', label: 'AI Roleplay', icon: <IconSparkChat size={15} /> },
+    { id: 'writing', label: 'Writing Studio', icon: <IconPen size={15} /> },
     {
       id: 'fsrs',
       label: 'FSRS Deck',
       badge: dueCount > 0 ? String(dueCount) : undefined,
       icon: <IconCards size={15} />,
     },
-    { id: 'reader', label: 'Dual-Sub Reader', icon: <IconBook size={15} /> },
+    { id: 'reader', label: 'Engoo Reader', icon: <IconBook size={15} /> },
     { id: 'qwerty', label: 'Qwerty Lab', icon: <IconKeyboard size={15} /> },
     { id: 'settings', label: 'Cài đặt', icon: <IconSettings size={15} /> },
   ];
 
-  // Standalone 364px Menu Bar Popover mode (used by macOS NSStatusItem & Preview)
   if (isMenuBarUrlMode || preview === 'menubar') {
     return (
       <div
@@ -350,31 +401,21 @@ export const App: React.FC = () => {
 
   const appShell = (
     <div className="shell">
-      <div
-        className="drawer-scrim"
-        onClick={() => setMobileDrawerOpen(false)}
-        aria-hidden="true"
-      />
+      <div className="drawer-scrim" onClick={() => setMobileDrawerOpen(false)} aria-hidden="true" />
 
-      {/* Left Liquid Glass Sidebar Rail (246px Desktop / 268px Mobile Drawer) */}
       <aside className="side" aria-label="Điều hướng chính">
         <div className="brand">
           <div className="logo">
             <IconLogo size={15} />
           </div>
           <b>T-English</b>
-          <span className="ver-pill">v1.0</span>
-          <button
-            type="button"
-            className="sb-collapse"
-            title="Thu gọn Sidebar (⌘\)"
-            onClick={toggleSidebarOrDrawer}
-          >
+          <span className="ver-pill">v2.0</span>
+          <button type="button" className="sb-collapse" title="Thu gọn Sidebar (⌘\)" onClick={toggleSidebarOrDrawer}>
             <IconSidebar size={15} />
           </button>
         </div>
 
-        <div className="slabel">Học tập &amp; Luyện tập</div>
+        <div className="slabel">Học tập &amp; Chinh phục CEFR</div>
         <nav className="nav">
           {navItems.map((item) => (
             <button
@@ -392,17 +433,21 @@ export const App: React.FC = () => {
 
         <div className="slabel">Truy cập nhanh</div>
         <div className="qlist">
+          <button type="button" className="qi" onClick={() => navigateTo('curriculum')}>
+            <span className="sdot" style={{ background: 'var(--green)' }} />
+            <b>Placement Test (CEFR)</b>
+          </button>
+          <button type="button" className="qi" onClick={() => navigateTo('writing')}>
+            <span className="sdot" style={{ background: 'var(--amber)' }} />
+            <b>IELTS Writing &amp; Ludwig</b>
+          </button>
           <button type="button" className="qi" onClick={() => navigateTo('shadowing')}>
             <span className="sdot" style={{ background: 'var(--cyan)' }} />
-            <b>Luyện âm yếu /θ/ &amp; /ð/</b>
+            <b>Minimal Pairs /θ/ vs /s/</b>
           </button>
-          <button type="button" className="qi" onClick={() => navigateTo('tutor')}>
-            <span className="sdot" style={{ background: 'var(--green)' }} />
-            <b>System Design Roleplay</b>
-          </button>
-          <button type="button" className="qi" onClick={() => navigateTo('reader')}>
+          <button type="button" className="qi" onClick={() => navigateTo('fsrs')}>
             <span className="sdot" style={{ background: 'var(--indigo)' }} />
-            <b>1000H Input Transcript</b>
+            <b>Membean Word Roots</b>
           </button>
         </div>
 
@@ -430,7 +475,6 @@ export const App: React.FC = () => {
         </div>
       </aside>
 
-      {/* Main Crisp Matte Inset Content Sheet */}
       <div className="inset-sheet">
         <TopHeader
           title={meta.title}
@@ -455,7 +499,7 @@ export const App: React.FC = () => {
         />
 
         <main className="main">
-          <div className="wrap">
+          <div className="wrap" style={{ paddingBottom: 76 }}>
             {activeTab === 'dashboard' && (
               <DashboardView
                 cards={state.cards}
@@ -477,6 +521,35 @@ export const App: React.FC = () => {
               />
             )}
 
+            {activeTab === 'curriculum' && (
+              <CurriculumView
+                completedUnitIds={state.stats.completedUnitIds}
+                cefrLevel={state.stats.cefrLevel}
+                onCompleteUnit={(unitId) => {
+                  setState((prev) => ({
+                    ...prev,
+                    stats: {
+                      ...prev.stats,
+                      completedUnitIds: prev.stats.completedUnitIds.includes(unitId)
+                        ? prev.stats.completedUnitIds
+                        : [...prev.stats.completedUnitIds, unitId],
+                      dailyMinutesDone: prev.stats.dailyMinutesDone + 5,
+                      immersionMinutes: prev.stats.immersionMinutes + 5,
+                    },
+                  }));
+                  showToast('Đã ghi nhận hoàn thành Unit vào lộ trình CEFR!');
+                }}
+                onSavePlacementLevel={(cefr) => {
+                  setState((prev) => ({
+                    ...prev,
+                    stats: { ...prev.stats, cefrLevel: cefr },
+                  }));
+                  showToast(`Đã cập nhật trình độ CEFR của bạn → ${cefr}`);
+                }}
+                onShowToast={showToast}
+              />
+            )}
+
             {activeTab === 'shadowing' && (
               <ShadowingStudio
                 onRecordScore={handleRecordPronunciation}
@@ -488,6 +561,7 @@ export const App: React.FC = () => {
               <AITutorView
                 aiConfig={state.settings.aiConfig}
                 memoryLedger={state.memoryLedger}
+                initialTopicPrompt={tutorSeedPrompt}
                 onSaveWordToFsrs={(word, contextSentence) =>
                   handleAddCard({
                     word,
@@ -500,15 +574,22 @@ export const App: React.FC = () => {
                     deck: 'AI Tutor Mined',
                   })
                 }
-                onRecordPracticeMinutes={(mins) =>
-                  setState((prev) => ({
-                    ...prev,
-                    stats: {
-                      ...prev.stats,
-                      dailyMinutesDone: prev.stats.dailyMinutesDone + mins,
-                      immersionMinutes: prev.stats.immersionMinutes + mins,
-                    },
-                  }))
+                onRecordPracticeMinutes={addStudyMinutes}
+                onShowToast={showToast}
+              />
+            )}
+
+            {activeTab === 'writing' && (
+              <WritingStudioView
+                onRecordWritingMinutes={addStudyMinutes}
+                onSavePhraseToFsrs={(word, meaningVi, sentence) =>
+                  handleAddCard({
+                    word,
+                    ipa: '',
+                    meaningVi,
+                    clozeSentence: sentence,
+                    deck: 'IELTS Writing Upgrades',
+                  })
                 }
                 onShowToast={showToast}
               />
@@ -535,6 +616,7 @@ export const App: React.FC = () => {
                   showToast(`Đã chuyển ${ids.length} thẻ vào "${deck}"`);
                 }}
                 onLaunchTutorWithWords={(words) => {
+                  setTutorSeedPrompt(`Let us practice using these target words naturally: ${words.join(', ')}.`);
                   showToast(`Mở AI Tutor tập nói với: ${words.join(', ')}`);
                   navigateTo('tutor');
                 }}
@@ -566,6 +648,11 @@ export const App: React.FC = () => {
                     deck: 'Mined from Reader',
                   })
                 }
+                onDiscussWithTutor={(question) => {
+                  setTutorSeedPrompt(`Let's discuss this question from Engoo Reader: "${question}" — From my perspective, `);
+                  navigateTo('tutor');
+                  showToast('Đã chuyển câu hỏi thảo luận sang AI Tutor');
+                }}
                 onShowToast={showToast}
               />
             )}
@@ -573,6 +660,7 @@ export const App: React.FC = () => {
             {activeTab === 'qwerty' && (
               <QwertyDictation
                 bestWpm={state.stats.typingWpmBest}
+                soundEffectsEnabled={state.settings.soundEffectsEnabled}
                 onUpdateBestWpm={(wpm) =>
                   setState((prev) => ({
                     ...prev,
@@ -591,22 +679,21 @@ export const App: React.FC = () => {
                 onShowToast={showToast}
                 onResetAll={() => {
                   setState(createDefaultState());
-                  showToast('Đã khôi phục toàn bộ dữ liệu mẫu T-English');
+                  showToast('Đã khôi phục toàn bộ dữ liệu mẫu T-English v2.0');
                 }}
               />
             )}
           </div>
         </main>
 
-        {/* Bottom Glass Pill Bar for iPhone */}
         <nav className="mobile-bottom-bar" aria-label="Thanh điều hướng nhanh iPhone">
           {(
             [
               { id: 'dashboard', label: 'Home', icon: <IconDashboard size={15} /> },
-              { id: 'shadowing', label: 'IPA', icon: <IconWaveform size={15} /> },
+              { id: 'curriculum', label: 'CEFR', icon: <IconCurriculum size={15} /> },
               { id: 'tutor', label: 'Tutor', icon: <IconSparkChat size={15} /> },
+              { id: 'writing', label: 'Write', icon: <IconPen size={15} /> },
               { id: 'fsrs', label: 'FSRS', icon: <IconCards size={15} /> },
-              { id: 'reader', label: 'Read', icon: <IconBook size={15} /> },
             ] as Array<{ id: NavTab; label: string; icon: React.ReactNode }>
           ).map((m) => (
             <button
@@ -645,6 +732,14 @@ export const App: React.FC = () => {
         </div>
       ) : (
         appShell
+      )}
+
+      {preview === 'auto' && (
+        <FloatingMiniDock
+          cards={state.cards}
+          onAddStudyMinutes={addStudyMinutes}
+          onShowToast={showToast}
+        />
       )}
 
       <CommandPalette

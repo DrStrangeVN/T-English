@@ -172,3 +172,26 @@ export const IconDownload: React.FC<IconProps> = ({ size = 15, className }) => (
     <line x1="12" y1="15" x2="12" y2="3" />
   </svg>
 );
+
+export const IconCurriculum: React.FC<IconProps> = ({ size = 16, className }) => (
+  <svg {...baseProps(size, className)}>
+    <circle cx="6" cy="6" r="2.5" />
+    <circle cx="18" cy="12" r="2.5" />
+    <circle cx="6" cy="18" r="2.5" />
+    <path d="M8.5 7.2 15.5 10.8M15.5 13.2 8.5 16.8" />
+  </svg>
+);
+
+export const IconPen: React.FC<IconProps> = ({ size = 16, className }) => (
+  <svg {...baseProps(size, className)}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+);
+
+export const IconClock: React.FC<IconProps> = ({ size = 15, className }) => (
+  <svg {...baseProps(size, className)}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </svg>
+);

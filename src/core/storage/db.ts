@@ -10,6 +10,7 @@ export interface AppSettings {
   theme: ThemeMode;
   glass: GlassIntensity;
   reduceTransparency: boolean;
+  soundEffectsEnabled: boolean;
   desiredRetention: number;
   dailyGoalMinutes: number;
   aiConfig: AIConfig;
@@ -22,6 +23,8 @@ export interface StudyStats {
   pronunciationScores: number[];
   phonemeMastery: Record<string, number>; // ipa symbol -> 0..100
   completedDailySteps: string[];
+  completedUnitIds: string[];
+  cefrLevel: string;
   typingWpmBest: number;
   wordFamiliarity: Record<string, 1 | 2 | 3 | 4 | 5>; // LingQ 1..5 scale
 }
@@ -33,7 +36,7 @@ export interface TEnglishState {
   memoryLedger: MemoryLedgerItem[];
 }
 
-const STORAGE_KEY = 't-english-state-v1';
+const STORAGE_KEY = 't-english-state-v2';
 
 export const DEFAULT_PHONEME_MASTERY: Record<string, number> = {
   'iː': 92, 'ɪ': 84, 'ʊ': 88, 'uː': 91, 'e': 89, 'ə': 86, 'ɜː': 76, 'ɔː': 85,
@@ -70,6 +73,7 @@ export function createDefaultState(): TEnglishState {
       theme: 'dark',
       glass: 'balanced',
       reduceTransparency: false,
+      soundEffectsEnabled: true,
       desiredRetention: 0.9,
       dailyGoalMinutes: 25,
       aiConfig: {
@@ -86,6 +90,8 @@ export function createDefaultState(): TEnglishState {
       pronunciationScores: [82, 85, 84, 87, 89, 88, 91],
       phonemeMastery: { ...DEFAULT_PHONEME_MASTERY },
       completedDailySteps: ['step-fsrs'],
+      completedUnitIds: ['unit-a1-1'],
+      cefrLevel: 'B2',
       typingWpmBest: 68,
       wordFamiliarity: {
         architecture: 4,

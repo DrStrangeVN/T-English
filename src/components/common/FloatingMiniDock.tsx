@@ -1,0 +1,123 @@
+import React, { useEffect, useState } from 'react';
+import type { FsrsCard } from '../../core/fsrs/fsrsEngine';
+import { speakEnglish, stopSpeaking } from '../../core/phonetics/speechIO';
+import { IconClock, IconPlay, IconRepeat, IconVolume } from '../icons/Icons';
+
+interface FloatingMiniDockProps {
+  cards: FsrsCard[];
+  onAddStudyMinutes: (mins: number) => void;
+  onShowToast: (msg: string) => void;
+}
+
+export const FloatingMiniDock: React.FC<FloatingMiniDockProps> = ({
+  cards,
+  onAddStudyMinutes,
+  onShowToast,
+}) => {
+  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [audioLooping, setAudioLooping] = useState(false);
+  const [loopIndex, setLoopIndex] = useState(0);
+
+  useEffect(() => {
+    if (!timerRunning) return;
+    const id = window.setInterval(() => {
+      setSecondsLeft((s) => {
+        if (s <= 1) {
+          setTimerRunning(false);
+          onAddStudyMinutes(25);
+          onShowToast('Hoàn thành phiên Pomodoro 25 phút (+25m vào lộ trình 1,000 Giờ)');
+          return 25 * 60;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [timerRunning, onAddStudyMinutes, onShowToast]);
+
+  useEffect(() => {
+    if (!audioLooping || cards.length === 0) return;
+    const card = cards[loopIndex % cards.length];
+    let cancelled = false;
+
+    const cleanSentence = card.clozeSentence.replace(/\{\{|\}\}/g, '');
+    speakEnglish(`${card.word}. ${cleanSentence}`, {
+      rate: 0.92,
+      onEnd: () => {
+        if (!cancelled) {
+          window.setTimeout(() => {
+            if (!cancelled) setLoopIndex((i) => (i + 1) % cards.length);
+          }, 900);
+        }
+      },
+    });
+
+    return () => {
+      cancelled = true;
+      stopSpeaking();
+    };
+  }, [audioLooping, loopIndex, cards]);
+
+  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
+  const ss = String(secondsLeft % 60).padStart(2, '0');
+  const currentCard = cards[loopIndex % Math.max(1, cards.length)];
+
+  return (
+    <div
+      className="hide-mobile"
+      style={{
+        position: 'fixed',
+        bottom: 16,
+        right: 20,
+        zIndex: 75,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: '6px 12px',
+        borderRadius: 99,
+        background: 'var(--menu-bg)',
+        backdropFilter: 'blur(32px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(32px) saturate(180%)',
+        border: '1px solid var(--line2)',
+        boxShadow: 'var(--pop)',
+        fontSize: 11.5,
+      }}
+    >
+      <button
+        type="button"
+        className={`gb sm ${timerRunning ? 'hl' : ''}`}
+        onClick={() => setTimerRunning((r) => !r)}
+        title="Bật/tắt đồng hồ tập trung Pomodoro 25 phút"
+      >
+        <IconClock size={12} />
+        <span className="mono">{mm}:{ss}</span>
+      </button>
+
+      <div style={{ width: 1, height: 16, background: 'var(--line)' }} />
+
+      <button
+        type="button"
+        className={`gb sm ${audioLooping ? 'hl' : ''}`}
+        onClick={() => {
+          if (audioLooping) stopSpeaking();
+          setAudioLooping((v) => !v);
+        }}
+        title="Nghe lặp thụ động từ vựng FSRS"
+      >
+        {audioLooping ? <IconRepeat size={12} /> : <IconPlay size={12} />}
+        <span>{audioLooping && currentCard ? currentCard.word : 'Audio Loop'}</span>
+      </button>
+
+      {currentCard && (
+        <button
+          type="button"
+          className="ib sm"
+          onClick={() => speakEnglish(currentCard.word)}
+          title="Đọc từ hiện tại"
+        >
+          <IconVolume size={13} />
+        </button>
+      )}
+    </div>
+  );
+};
