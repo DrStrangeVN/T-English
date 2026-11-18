@@ -1,0 +1,32 @@
+{
+  "name": "t-english",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "T-English — Next-gen AI English Learning Super App for macOS and iPhone with Minimal Specular Liquid Glass UI",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:macos": "npm run build && bash macos-host/build-macos.sh",
+    "sync:ios": "npm run build && npx cap sync ios"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^3.0.4"
+  }
+}

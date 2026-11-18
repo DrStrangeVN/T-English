@@ -1,0 +1,16 @@
+{
+  "name": "T-English",
+  "short_name": "T-English",
+  "description": "Siêu ứng dụng học tiếng Anh AI & FSRS v5 cho Mac và iPhone theo chuẩn Minimal Specular Liquid Glass.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0C0E14",
+  "theme_color": "#0C0E14",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
