@@ -1,7 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { evaluateWriting, evaluateWritingWithAI } from '../src/core/ai/writingEvaluator';
 import { generateTutorReply } from '../src/core/ai/tutorService';
-import { startSpeechCapture } from '../src/core/phonetics/speechIO';
+import {
+  checkVieneuHealth,
+  fetchVieneuVoices,
+  pcm16ToWavBytes,
+  startSpeechCapture,
+  synthesizeVieneuAudio,
+} from '../src/core/phonetics/speechIO';
 import { createDefaultState, exportStateBackup, importStateBackup } from '../src/core/storage/db';
 import { WRITING_PROMPTS } from '../src/data/writingPrompts';
 import { searchLudwigCorpus } from '../src/data/ludwigCorpus';
@@ -240,5 +246,132 @@ describe('T-English v2.0 Expanded Engines & Curricula', () => {
     expect(ROLEPLAY_SCENARIOS.length).toBe(8);
     expect(ROLEPLAY_SCENARIOS.every((s) => s.missions.length === 3)).toBe(true);
     expect(SHADOWING_TRACKS.length).toBe(8);
+  });
+
+  it('manages ttsConfig defaults, hydration, and token sanitization in backups', () => {
+    const defaultState = createDefaultState();
+    expect(defaultState.settings.ttsConfig).toBeDefined();
+    expect(defaultState.settings.ttsConfig.engine).toBe('system');
+    expect(defaultState.settings.ttsConfig.vieneuUrl).toBe('http://127.0.0.1:8765');
+    expect(defaultState.settings.ttsConfig.useVieneuForVietnamese).toBe(true);
+
+    const stateWithSecret = {
+      ...defaultState,
+      settings: {
+        ...defaultState.settings,
+        ttsConfig: {
+          ...defaultState.settings.ttsConfig,
+          engine: 'vieneu' as const,
+          vieneuToken: 'secret-token-12345',
+        },
+      },
+    };
+
+    const sanitizedBackup = exportStateBackup(stateWithSecret, false);
+    const parsedSanitized = JSON.parse(sanitizedBackup);
+    expect(parsedSanitized.data.settings.ttsConfig.vieneuToken).toBe('');
+
+    const fullBackup = exportStateBackup(stateWithSecret, true);
+    const parsedFull = JSON.parse(fullBackup);
+    expect(parsedFull.data.settings.ttsConfig.vieneuToken).toBe('secret-token-12345');
+
+    const imported = importStateBackup(sanitizedBackup);
+    expect(imported).not.toBeNull();
+    expect(imported?.settings.ttsConfig.engine).toBe('vieneu');
+  });
+
+  it('generates valid RIFF WAV headers in pcm16ToWavBytes', () => {
+    const pcm = new Int16Array([1000, -1000, 2000, -2000]);
+    const wav = pcm16ToWavBytes(pcm.buffer, 24000);
+    expect(wav.length).toBe(44 + 8);
+    const header = new TextDecoder().decode(wav.slice(0, 4));
+    expect(header).toBe('RIFF');
+    const waveTag = new TextDecoder().decode(wav.slice(8, 12));
+    expect(waveTag).toBe('WAVE');
+  });
+
+  it('checks VieNeu TTS health and parses voice list', async () => {
+    const healthMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ status: 'healthy', version: '3.0-turbo' }),
+    });
+    vi.stubGlobal('fetch', healthMock);
+
+    const healthRes = await checkVieneuHealth('http://127.0.0.1:8765', 'test-token');
+    expect(healthRes.ok).toBe(true);
+    expect(healthMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8765/health',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-VieNeu-Studio-Token': 'test-token' }),
+      })
+    );
+
+    const voicesData = [
+      { id: 'nam-nhatphong', name: 'Nam - Nhật Phong (VieNeu)', lang: 'vi' },
+      { id: 'en-ava', name: 'Ava (VieNeu Neural)', lang: 'en' },
+    ];
+    const voicesMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+      json: async () => voicesData,
+      text: async () => JSON.stringify(voicesData),
+    });
+    vi.stubGlobal('fetch', voicesMock);
+
+    const res = await fetchVieneuVoices('http://127.0.0.1:8765');
+    expect(res.ok).toBe(true);
+    expect(res.voices.length).toBe(2);
+    expect(res.voices[0].id).toBe('nam-nhatphong');
+    expect(res.voices[1].lang).toBe('en');
+  });
+
+  it('synthesizes audio via VieNeu and falls back gracefully when server fails', async () => {
+    const fakeWav = new Uint8Array([82, 73, 70, 70, 36, 0, 0, 0, 87, 65, 86, 69]);
+    const synthMock = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => fakeWav.buffer,
+    });
+    vi.stubGlobal('fetch', synthMock);
+
+    const audioUrl = await synthesizeVieneuAudio(
+      'Hello world',
+      {
+        engine: 'vieneu',
+        vieneuUrl: 'http://127.0.0.1:8765',
+        vieneuToken: 'test-token',
+        voiceId: 'en-ava',
+        voiceName: 'Ava',
+        speed: 1.0,
+        useVieneuForVietnamese: true,
+      },
+      24000
+    );
+    expect(audioUrl).not.toBeNull();
+
+    // Verify fallback when server returns 500
+    const failMock = vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Error',
+    });
+    vi.stubGlobal('fetch', failMock);
+
+    const failedAudio = await synthesizeVieneuAudio(
+      'Hello fail',
+      {
+        engine: 'vieneu',
+        vieneuUrl: 'http://127.0.0.1:8765',
+        vieneuToken: '',
+        voiceId: 'en-ava',
+        voiceName: 'Ava',
+        speed: 1.0,
+        useVieneuForVietnamese: true,
+      },
+      24000
+    );
+    expect(failedAudio).toBeNull();
   });
 });

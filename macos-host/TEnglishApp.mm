@@ -95,23 +95,46 @@
 
 @implementation TEnglishAppDelegate
 
+// Monochrome template logo matching the stylized "T" + 3-bar "E" emblem for macOS Menu Bar
 - (NSImage *)createTemplateSquircleLogo {
     NSSize size = NSMakeSize(18, 18);
     NSImage *img = [[NSImage alloc] initWithSize:size];
     [img lockFocus];
-    NSBezierPath *outer = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1.5, 1.5, 15, 15) xRadius:4.2 yRadius:4.2];
-    outer.lineWidth = 1.5;
     [[NSColor blackColor] setStroke];
+    [[NSColor blackColor] setFill];
+
+    NSBezierPath *outer = [NSBezierPath bezierPathWithRoundedRect:NSMakeRect(1.25, 1.25, 15.5, 15.5) xRadius:4.4 yRadius:4.4];
+    outer.lineWidth = 1.4;
     [outer stroke];
 
-    NSBezierPath *tBar = [NSBezierPath bezierPath];
-    [tBar moveToPoint:NSMakePoint(5.2, 12.2)];
-    [tBar lineToPoint:NSMakePoint(12.8, 12.2)];
-    [tBar moveToPoint:NSMakePoint(9.0, 12.2)];
-    [tBar lineToPoint:NSMakePoint(9.0, 5.5)];
-    tBar.lineWidth = 1.6;
-    tBar.lineCapStyle = NSLineCapStyleRound;
-    [tBar stroke];
+    // Stylized "T" on left/top
+    NSBezierPath *tMark = [NSBezierPath bezierPath];
+    [tMark moveToPoint:NSMakePoint(4.2, 12.6)];
+    [tMark lineToPoint:NSMakePoint(10.6, 12.6)];
+    [tMark moveToPoint:NSMakePoint(6.7, 12.6)];
+    [tMark lineToPoint:NSMakePoint(6.7, 5.2)];
+    [tMark moveToPoint:NSMakePoint(5.2, 5.2)];
+    [tMark lineToPoint:NSMakePoint(8.2, 5.2)];
+    tMark.lineWidth = 1.5;
+    tMark.lineCapStyle = NSLineCapStyleRound;
+    [tMark stroke];
+
+    // 3-bar Speech-Wave "E" on right
+    NSBezierPath *eBars = [NSBezierPath bezierPath];
+    [eBars moveToPoint:NSMakePoint(9.9, 9.8)];
+    [eBars lineToPoint:NSMakePoint(13.6, 9.8)];
+    [eBars moveToPoint:NSMakePoint(9.9, 7.5)];
+    [eBars lineToPoint:NSMakePoint(12.6, 7.5)];
+    [eBars moveToPoint:NSMakePoint(9.9, 5.2)];
+    [eBars lineToPoint:NSMakePoint(13.8, 5.2)];
+    eBars.lineWidth = 1.35;
+    eBars.lineCapStyle = NSLineCapStyleRound;
+    [eBars stroke];
+
+    // Accent dot top-right
+    NSBezierPath *dot = [NSBezierPath bezierPathWithOvalInRect:NSMakeRect(12.2, 11.7, 1.8, 1.8)];
+    [dot fill];
+
     [img unlockFocus];
     [img setTemplate:YES];
     return img;
@@ -120,6 +143,7 @@
 - (WKWebViewConfiguration *)makeSharedWebConfig {
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
+    config.mediaTypesRequiringUserActionForPlayback = WKAudiovisualMediaTypeNone;
     [config setURLSchemeHandler:self.schemeHandler forURLScheme:@"tenglish"];
     [config.userContentController addScriptMessageHandler:self name:@"tenglish"];
     return config;
@@ -188,11 +212,91 @@
     }];
 }
 
+- (void)dispatchVieneuResponse:(NSDictionary *)payload toWebView:(WKWebView *)targetWebView {
+    if (!targetWebView) return;
+    NSError *err = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&err];
+    if (!jsonData || err) return;
+    NSString *jsonStr = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    NSString *script = [NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('tenglish-vieneu-response', { detail: %@ }));", jsonStr];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [targetWebView evaluateJavaScript:script completionHandler:nil];
+    });
+}
+
+- (void)handleVieneuRequest:(NSDictionary *)dict fromWebView:(WKWebView *)sourceWebView {
+    NSString *requestId = [dict[@"requestId"] isKindOfClass:[NSString class]] ? dict[@"requestId"] : @"";
+    NSString *urlString = [dict[@"url"] isKindOfClass:[NSString class]] ? dict[@"url"] : @"";
+    NSString *method = [dict[@"method"] isKindOfClass:[NSString class]] ? dict[@"method"] : @"GET";
+    NSString *token = [dict[@"token"] isKindOfClass:[NSString class]] ? dict[@"token"] : @"";
+    NSString *bodyStr = [dict[@"body"] isKindOfClass:[NSString class]] ? dict[@"body"] : nil;
+
+    NSURL *url = [NSURL URLWithString:urlString];
+    NSString *scheme = url.scheme.lowercaseString;
+    if (!url || (![scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"])) {
+        [self dispatchVieneuResponse:@{
+            @"requestId": requestId,
+            @"ok": @NO,
+            @"status": @0,
+            @"error": @"Invalid TTS URL scheme"
+        } toWebView:sourceWebView];
+        return;
+    }
+
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
+                                                       cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
+                                                   timeoutInterval:15.0];
+    req.HTTPMethod = method.uppercaseString;
+    if (token.length > 0) {
+        [req setValue:token forHTTPHeaderField:@"X-VieNeu-Studio-Token"];
+        [req setValue:[NSString stringWithFormat:@"Bearer %@", token] forHTTPHeaderField:@"Authorization"];
+    }
+    if (bodyStr && [req.HTTPMethod isEqualToString:@"POST"]) {
+        [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        req.HTTPBody = [bodyStr dataUsingEncoding:NSUTF8StringEncoding];
+    }
+
+    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req
+        completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
+            if (error || !response) {
+                [self dispatchVieneuResponse:@{
+                    @"requestId": requestId,
+                    @"ok": @NO,
+                    @"status": @0,
+                    @"error": error ? error.localizedDescription : @"Connection failed"
+                } toWebView:sourceWebView];
+                return;
+            }
+            NSHTTPURLResponse *httpResp = (NSHTTPURLResponse *)response;
+            NSInteger status = httpResp.statusCode;
+            BOOL ok = (status >= 200 && status < 300);
+            NSString *contentType = httpResp.MIMEType ?: @"application/octet-stream";
+            NSString *sampleRateHeader = httpResp.allHeaderFields[@"X-Sample-Rate"] ?: httpResp.allHeaderFields[@"x-sample-rate"];
+            NSInteger sampleRate = sampleRateHeader ? [sampleRateHeader integerValue] : 24000;
+            NSString *b64 = data ? [data base64EncodedStringWithOptions:0] : @"";
+
+            [self dispatchVieneuResponse:@{
+                @"requestId": requestId,
+                @"ok": @(ok),
+                @"status": @(status),
+                @"contentType": contentType,
+                @"sampleRate": @(sampleRate > 0 ? sampleRate : 24000),
+                @"bodyBase64": b64
+            } toWebView:sourceWebView];
+        }];
+    [task resume];
+}
+
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.body isKindOfClass:[NSDictionary class]]) return;
     NSDictionary *dict = (NSDictionary *)message.body;
     NSString *action = dict[@"action"];
+
+    if ([action isEqualToString:@"vieneuRequest"]) {
+        [self handleVieneuRequest:dict fromWebView:message.webView];
+        return;
+    }
 
     if ([action isEqualToString:@"saveFile"]) {
         NSString *filename = [dict[@"filename"] isKindOfClass:[NSString class]] ? dict[@"filename"] : @"export.csv";
@@ -241,6 +345,15 @@
     self.lightMode = NO;
     self.glassMode = @"balanced";
     self.userReduceTransparency = NO;
+
+    // Force Dock & Command-Tab switcher to render the custom T-English AppIcon immediately
+    NSString *iconPath = [[NSBundle mainBundle] pathForResource:@"AppIcon" ofType:@"icns"];
+    if (iconPath) {
+        NSImage *dockIcon = [[NSImage alloc] initWithContentsOfFile:iconPath];
+        if (dockIcon) {
+            [NSApp setApplicationIconImage:dockIcon];
+        }
+    }
 
     NSString *resourceWeb = [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"web"];
     self.schemeHandler = [[BundleSchemeHandler alloc] init];

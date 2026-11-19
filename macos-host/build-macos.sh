@@ -42,7 +42,7 @@ echo "Built macOS app bundle at: $APP_BUNDLE"
 
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 if [ -x "$LSREGISTER" ]; then
-  "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || true
+  "$LSREGISTER" -f -r "$APP_BUNDLE" >/dev/null 2>&1 || true
 fi
 
 if [ -w "/Applications" ]; then
@@ -50,8 +50,10 @@ if [ -w "/Applications" ]; then
   cp -R "$APP_BUNDLE" "/Applications/$APP_NAME.app"
   touch "/Applications/$APP_NAME.app"
   if [ -x "$LSREGISTER" ]; then
-    "$LSREGISTER" -f "/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
+    "$LSREGISTER" -f -r "/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
   fi
+  qlmanage -r cache >/dev/null 2>&1 || true
+  killall Dock >/dev/null 2>&1 || true
   echo "Installed to: /Applications/$APP_NAME.app"
 else
   mkdir -p "$HOME/Applications"
@@ -59,7 +61,9 @@ else
   cp -R "$APP_BUNDLE" "$HOME/Applications/$APP_NAME.app"
   touch "$HOME/Applications/$APP_NAME.app"
   if [ -x "$LSREGISTER" ]; then
-    "$LSREGISTER" -f "$HOME/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
+    "$LSREGISTER" -f -r "$HOME/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
   fi
+  qlmanage -r cache >/dev/null 2>&1 || true
+  killall Dock >/dev/null 2>&1 || true
   echo "Installed to: $HOME/Applications/$APP_NAME.app"
 fi

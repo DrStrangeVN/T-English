@@ -6,7 +6,7 @@ import {
   type MemoryLedgerItem,
 } from '../../core/ai/tutorService';
 import type { SavedChatTurn, SavedTutorSession } from '../../core/storage/db';
-import { speakEnglish, startSpeechCapture, triggerHaptic } from '../../core/phonetics/speechIO';
+import { speakEnglish, speakVietnamese, startSpeechCapture, triggerHaptic } from '../../core/phonetics/speechIO';
 import { playSuccessSound } from '../../core/phonetics/soundEffects';
 import { IconCheck, IconMic, IconPlus, IconSend, IconVolume } from '../icons/Icons';
 
@@ -328,7 +328,20 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
                   </button>
                 </div>
                 <div style={{ fontSize: 13 }}>{t.text}</div>
-                {t.textVi && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{t.textVi}</div>}
+                {t.textVi && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginTop: 4 }}>
+                    <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{t.textVi}</span>
+                    <button
+                      type="button"
+                      className="ib sm"
+                      aria-label="Nghe bản dịch tiếng Việt"
+                      title="Nghe bản dịch tiếng Việt"
+                      onClick={() => speakVietnamese(t.textVi!)}
+                    >
+                      <IconVolume size={12} />
+                    </button>
+                  </div>
+                )}
                 {t.fallbackReason && (
                   <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 4 }}>
                     Ghi chú API: {t.fallbackReason} (đã chuyển sang Offline Linguistic Engine)

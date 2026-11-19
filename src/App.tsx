@@ -5,7 +5,7 @@ import {
   type FsrsRating,
 } from './core/fsrs/fsrsEngine';
 import { wordToIpa } from './core/phonetics/ipaScorer';
-import { notifyMacNativeHost, notifyMacStateSync } from './core/phonetics/speechIO';
+import { configureSpeechEngine, notifyMacNativeHost, notifyMacStateSync } from './core/phonetics/speechIO';
 import {
   STORAGE_KEY,
   bumpDailyActivity,
@@ -184,6 +184,10 @@ export const App: React.FC = () => {
       window.removeEventListener('tenglish-sync', handleExternalSync);
     };
   }, []);
+
+  useEffect(() => {
+    configureSpeechEngine(state.settings.ttsConfig);
+  }, [state.settings.ttsConfig]);
 
   useEffect(() => {
     const body = document.body;
@@ -552,6 +556,8 @@ export const App: React.FC = () => {
             setOpenAddFormNonce((n) => n + 1);
             navigateTo('fsrs');
           }}
+          ttsEngine={state.settings.ttsConfig.engine}
+          onOpenTtsSettings={() => navigateTo('settings')}
         />
 
         <main className="main">

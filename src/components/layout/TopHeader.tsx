@@ -24,6 +24,8 @@ interface TopHeaderProps {
   onChangePreview: (mode: ViewportPreview) => void;
   onQuickAddCard: () => void;
   activeTab: NavTab;
+  ttsEngine?: 'system' | 'vieneu';
+  onOpenTtsSettings?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -37,6 +39,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onToggleTheme,
   onChangePreview,
   onQuickAddCard,
+  ttsEngine = 'system',
+  onOpenTtsSettings,
 }) => {
   return (
     <header className="top">
@@ -101,6 +105,17 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <span>Tìm từ, lệnh...</span>
           <kbd>⌘K</kbd>
         </button>
+
+        {onOpenTtsSettings && (
+          <button
+            type="button"
+            className={`gb sm hide-mobile ${ttsEngine === 'vieneu' ? 'hl' : ''}`}
+            onClick={onOpenTtsSettings}
+            title="Cấu hình Engine giọng đọc (System / VieNeu Local)"
+          >
+            <span>{ttsEngine === 'vieneu' ? 'VieNeu TTS' : 'System TTS'}</span>
+          </button>
+        )}
 
         <button
           type="button"

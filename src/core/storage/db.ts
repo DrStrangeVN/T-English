@@ -6,6 +6,17 @@ import { INITIAL_FSRS_CARDS } from '../../data/dictionaries';
 export type ThemeMode = 'dark' | 'light';
 export type GlassIntensity = 'clear' | 'balanced' | 'solid';
 export type ViewportPreview = 'auto' | 'mac' | 'iphone' | 'menubar';
+export type SpeechEngine = 'system' | 'vieneu';
+
+export interface TtsConfig {
+  engine: SpeechEngine;
+  vieneuUrl: string;
+  vieneuToken: string;
+  voiceId: string;
+  voiceName: string;
+  speed: number;
+  useVieneuForVietnamese: boolean;
+}
 
 export interface SavedChatTurn {
   id: string;
@@ -31,6 +42,7 @@ export interface AppSettings {
   desiredRetention: number;
   dailyGoalMinutes: number;
   aiConfig: AIConfig;
+  ttsConfig: TtsConfig;
 }
 
 export interface StudyStats {
@@ -132,6 +144,15 @@ export function createDefaultState(): TEnglishState {
         model: 'gpt-4o-mini',
         ollamaUrl: 'http://localhost:11434',
       },
+      ttsConfig: {
+        engine: 'system',
+        vieneuUrl: 'http://127.0.0.1:8765',
+        vieneuToken: '',
+        voiceId: '',
+        voiceName: 'Mặc định VieNeu',
+        speed: 1.0,
+        useVieneuForVietnamese: true,
+      },
     },
     stats: {
       immersionMinutes: 18_750, // 312.5 / 1,000 hours
@@ -178,6 +199,11 @@ export function hydrateState(parsed: Partial<TEnglishState>): TEnglishState {
         ...fallback.settings.aiConfig,
         ...(parsed.settings?.aiConfig ?? {}),
         provider: safeProvider,
+      },
+      ttsConfig: {
+        ...fallback.settings.ttsConfig,
+        ...(parsed.settings?.ttsConfig ?? {}),
+        engine: parsed.settings?.ttsConfig?.engine === 'vieneu' ? 'vieneu' : 'system',
       },
     },
     stats: {
@@ -238,6 +264,10 @@ export function exportStateBackup(state: TEnglishState, includeSecrets = false):
       aiConfig: {
         ...state.settings.aiConfig,
         apiKey: includeSecrets ? state.settings.aiConfig.apiKey : '',
+      },
+      ttsConfig: {
+        ...state.settings.ttsConfig,
+        vieneuToken: includeSecrets ? state.settings.ttsConfig.vieneuToken : '',
       },
     },
   };

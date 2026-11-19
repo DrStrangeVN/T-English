@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { READER_ARTICLES, READER_GLOSSARY, type ReaderArticle } from '../../data/readerArticles';
 import { analyzeSentenceSyntax, type SyntaxClause } from '../../core/ai/tutorService';
 import { wordToIpa } from '../../core/phonetics/ipaScorer';
-import { speakEnglish } from '../../core/phonetics/speechIO';
+import { speakEnglish, speakVietnamese } from '../../core/phonetics/speechIO';
 import { playSuccessSound } from '../../core/phonetics/soundEffects';
 import { IconPlus, IconSparkChat, IconVolume } from '../icons/Icons';
 
@@ -406,13 +406,29 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
 
                     <div
                       style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8,
                         fontSize: 12,
                         color: 'var(--muted)',
                         filter: blurVi ? 'blur(5px)' : 'none',
                         transition: 'filter var(--dur-fast) var(--ease)',
                       }}
                     >
-                      {sent.vi}
+                      <span>{sent.vi}</span>
+                      <button
+                        type="button"
+                        className="ib sm"
+                        aria-label={`Nghe bản dịch tiếng Việt câu số ${idx + 1}`}
+                        title="Nghe bản dịch tiếng Việt"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          speakVietnamese(sent.vi);
+                        }}
+                      >
+                        <IconVolume size={12} />
+                      </button>
                     </div>
                   </div>
                 );

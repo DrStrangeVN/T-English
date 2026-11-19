@@ -1,17 +1,26 @@
-import React, { useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   exportStateBackup,
   importStateBackup,
   type AppSettings,
   type GlassIntensity,
+  type SpeechEngine,
   type TEnglishState,
   type ThemeMode,
 } from '../../core/storage/db';
 import type { AIProvider } from '../../core/ai/tutorService';
 import type { FsrsCard } from '../../core/fsrs/fsrsEngine';
 import { exportCardsToAnkiCsv } from '../../core/fsrs/fsrsEngine';
-import { exportTextFile } from '../../core/phonetics/speechIO';
-import { IconDownload, IconUpload } from '../icons/Icons';
+import {
+  checkVieneuHealth,
+  clearSpeechCache,
+  exportTextFile,
+  fetchVieneuVoices,
+  speakEnglish,
+  speakVietnamese,
+  type VieneuVoice,
+} from '../../core/phonetics/speechIO';
+import { IconDownload, IconUpload, IconVolume } from '../icons/Icons';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -33,6 +42,65 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onResetAll,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [vieneuStatus, setVieneuStatus] = useState<{
+    state: 'idle' | 'checking' | 'ok' | 'error';
+    message: string;
+  }>({ state: 'idle', message: '' });
+  const [vieneuVoices, setVieneuVoices] = useState<VieneuVoice[]>([]);
+  const [voiceFilter, setVoiceFilter] = useState('');
+
+  const updateTts = (patch: Partial<AppSettings['ttsConfig']>) => {
+    clearSpeechCache();
+    onUpdateSettings({
+      ttsConfig: { ...settings.ttsConfig, ...patch },
+    });
+  };
+
+  const filteredVoices = useMemo(() => {
+    const q = voiceFilter.trim().toLowerCase();
+    if (!q) return vieneuVoices;
+    return vieneuVoices.filter(
+      (v) =>
+        v.name.toLowerCase().includes(q) ||
+        v.id.toLowerCase().includes(q) ||
+        (v.description?.toLowerCase().includes(q) ?? false)
+    );
+  }, [vieneuVoices, voiceFilter]);
+
+  const handleCheckVieneu = async () => {
+    setVieneuStatus({ state: 'checking', message: 'Đang kết nối VieNeu Local Engine...' });
+    const health = await checkVieneuHealth(
+      settings.ttsConfig.vieneuUrl,
+      settings.ttsConfig.vieneuToken
+    );
+    if (!health.ok) {
+      setVieneuStatus({ state: 'error', message: health.message });
+      onShowToast(health.message);
+      return;
+    }
+
+    const voicesRes = await fetchVieneuVoices(
+      settings.ttsConfig.vieneuUrl,
+      settings.ttsConfig.vieneuToken
+    );
+    if (voicesRes.ok && voicesRes.voices.length > 0) {
+      setVieneuVoices(voicesRes.voices);
+      const currentValid = voicesRes.voices.some((v) => v.id === settings.ttsConfig.voiceId);
+      if (!currentValid) {
+        const first = voicesRes.voices[0];
+        updateTts({ voiceId: first.id, voiceName: first.name });
+      }
+      const msg = `Kết nối thành công · Đã nạp ${voicesRes.voices.length} giọng VieNeu`;
+      setVieneuStatus({ state: 'ok', message: msg });
+      onShowToast(msg);
+    } else {
+      setVieneuStatus({
+        state: 'ok',
+        message: 'VieNeu Engine sẵn sàng (dùng giọng mặc định của server).',
+      });
+      onShowToast('VieNeu Engine sẵn sàng!');
+    }
+  };
 
   const handleDownloadAnki = () => {
     const csv = exportCardsToAnkiCsv(cards);
@@ -44,7 +112,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!fullState) return;
     const json = exportStateBackup(fullState, false);
     exportTextFile('T-English-Backup.json', json, 'application/json;charset=utf-8;');
-    onShowToast('Đã xuất bản sao lưu JSON (đã ẩn API key để bảo mật).');
+    onShowToast('Đã xuất bản sao lưu JSON (đã ẩn API key & token để bảo mật).');
   };
 
   const handleImportFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -195,6 +263,220 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <i />
           </label>
         </div>
+      </div>
+
+      {/* VieNeu Local TTS Engine & Voice Config */}
+      <div
+        style={{
+          fontSize: 11.5,
+          fontWeight: 650,
+          color: 'var(--muted)',
+          marginBottom: 8,
+          textTransform: 'uppercase',
+          letterSpacing: '0.03em',
+        }}
+      >
+        Giọng đọc AI &amp; VieNeu Local TTS (macOS / Web)
+      </div>
+      <div className="panel" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <div style={{ fontWeight: 600 }}>Engine phát âm giọng nói</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              Dùng giọng hệ thống macOS/iOS hoặc kết nối VieNeu v3 Turbo trên máy (tự fallback nếu offline)
+            </div>
+          </div>
+          <div className="seg">
+            {(
+              [
+                { id: 'system', label: 'System Speech' },
+                { id: 'vieneu', label: 'VieNeu Local TTS' },
+              ] as Array<{ id: SpeechEngine; label: string }>
+            ).map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className={settings.ttsConfig.engine === opt.id ? 'on' : ''}
+                onClick={() => updateTts({ engine: opt.id })}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid2">
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>VieNeu Endpoint URL</span>
+            <input
+              id="settings-vieneu-url"
+              name="vieneuUrl"
+              aria-label="Địa chỉ VieNeu Local TTS Endpoint"
+              className="input-field"
+              value={settings.ttsConfig.vieneuUrl}
+              placeholder="http://127.0.0.1:8765"
+              onChange={(e) => updateTts({ vieneuUrl: e.target.value })}
+            />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              Mã truy cập VieNeu Studio (tùy chọn, lấy từ Share Studio / Engine)
+            </span>
+            <input
+              id="settings-vieneu-token"
+              name="vieneuToken"
+              aria-label="Mã truy cập VieNeu Studio Token"
+              type="password"
+              className="input-field"
+              value={settings.ttsConfig.vieneuToken}
+              placeholder="X-VieNeu-Studio-Token (bỏ trống nếu cổng mở)"
+              onChange={(e) => updateTts({ vieneuToken: e.target.value })}
+            />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Cổng gợi ý:</span>
+          {[
+            { label: 'VieNeu Studio (8765)', url: 'http://127.0.0.1:8765' },
+            { label: 'VieNeu Web (7860)', url: 'http://127.0.0.1:7860' },
+            { label: 'OpenAI Speech (23333)', url: 'http://127.0.0.1:23333' },
+          ].map((preset) => (
+            <button
+              key={preset.url}
+              type="button"
+              className="gb sm"
+              onClick={() => updateTts({ vieneuUrl: preset.url })}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>
+              Tốc độ đọc VieNeu ({settings.ttsConfig.speed.toFixed(2)}x)
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              0.75x (nghe chậm Shadowing) → 1.00x (chuẩn) → 1.35x (ôn tập nhanh)
+            </div>
+          </div>
+          <input
+            id="settings-vieneu-speed"
+            name="vieneuSpeed"
+            aria-label="Tốc độ giọng đọc VieNeu"
+            type="range"
+            min={75}
+            max={135}
+            step={5}
+            value={Math.round(settings.ttsConfig.speed * 100)}
+            onChange={(e) => updateTts({ speed: Number(e.target.value) / 100 })}
+            style={{ width: 160 }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>Đọc bản dịch &amp; giải thích tiếng Việt bằng VieNeu</div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              Phát giọng tiếng Việt tự nhiên trong Engoo Reader &amp; phản hồi AI Roleplay
+            </div>
+          </div>
+          <label className="sw">
+            <input
+              id="settings-vieneu-vi"
+              name="useVieneuForVietnamese"
+              aria-label="Dùng VieNeu đọc giải thích tiếng Việt"
+              type="checkbox"
+              checked={settings.ttsConfig.useVieneuForVietnamese}
+              onChange={(e) => updateTts({ useVieneuForVietnamese: e.target.checked })}
+            />
+            <i />
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="pb sm"
+            disabled={vieneuStatus.state === 'checking'}
+            onClick={handleCheckVieneu}
+          >
+            {vieneuStatus.state === 'checking'
+              ? 'Đang kiểm tra...'
+              : 'Kiểm tra kết nối & Tải giọng VieNeu'}
+          </button>
+          <button
+            type="button"
+            className="gb sm"
+            onClick={() => speakEnglish('Resilient architectures balance latency and consistency.')}
+          >
+            <IconVolume size={13} />
+            <span>Nghe thử (EN)</span>
+          </button>
+          <button
+            type="button"
+            className="gb sm"
+            onClick={() => speakVietnamese('Xin chào, đây là giọng đọc VieNeu hỗ trợ song ngữ trong T-English.')}
+          >
+            <IconVolume size={13} />
+            <span>Nghe thử (VI)</span>
+          </button>
+          {vieneuStatus.message && (
+            <span
+              className="tag"
+              style={{
+                color: vieneuStatus.state === 'ok' ? 'var(--green)' : vieneuStatus.state === 'error' ? 'var(--rose)' : 'var(--cyan)',
+                background: vieneuStatus.state === 'ok' ? 'var(--green-s)' : vieneuStatus.state === 'error' ? 'var(--rose-s)' : 'var(--cyan-s)',
+              }}
+            >
+              {vieneuStatus.message}
+            </span>
+          )}
+        </div>
+
+        {vieneuVoices.length > 0 && (
+          <div className="grid2">
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                Tìm giọng đọc ({filteredVoices.length}/{vieneuVoices.length})
+              </span>
+              <input
+                id="settings-vieneu-voice-search"
+                name="vieneuVoiceSearch"
+                aria-label="Tìm kiếm giọng đọc VieNeu"
+                className="input-field"
+                value={voiceFilter}
+                placeholder="Lọc theo tên giọng (VD: Nhật Phong, Common Voice...)"
+                onChange={(e) => setVoiceFilter(e.target.value)}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Giọng VieNeu đang chọn</span>
+              <select
+                id="settings-vieneu-voice"
+                name="vieneuVoiceId"
+                aria-label="Chọn giọng đọc VieNeu"
+                className="input-field"
+                value={settings.ttsConfig.voiceId}
+                onChange={(e) => {
+                  const chosen = vieneuVoices.find((v) => v.id === e.target.value);
+                  updateTts({
+                    voiceId: e.target.value,
+                    voiceName: chosen?.name ?? e.target.value,
+                  });
+                }}
+              >
+                {filteredVoices.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}{v.description ? ` — ${v.description}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
       </div>
 
       <div

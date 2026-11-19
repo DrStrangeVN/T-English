@@ -8,6 +8,8 @@
     <string>T-English</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.tenglish.macos</string>
     <key>CFBundleInfoDictionaryVersion</key>
