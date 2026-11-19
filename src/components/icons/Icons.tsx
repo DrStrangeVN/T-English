@@ -20,8 +20,9 @@ const baseProps = (size = 16, className?: string): React.SVGProps<SVGSVGElement>
 
 export const IconLogo: React.FC<IconProps> = ({ size = 16, className }) => (
   <svg {...baseProps(size, className)}>
-    <path d="M5 7h14M12 7v11M8 18h8" />
-    <circle cx="18.5" cy="15.5" r="2" fill="currentColor" stroke="none" />
+    <path d="M3.5 6.5h11.5M8.5 6.5v11M6.2 17.5h4.6" />
+    <path d="M14 11h5.5M14 14.2h4M14 17.5h6" stroke="#38BDF8" />
+    <circle cx="18.5" cy="6.5" r="1.4" fill="#38BDF8" stroke="none" />
   </svg>
 );
 

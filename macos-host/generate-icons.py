@@ -1,20 +1,38 @@
 #!/usr/bin/env python3
 """
-Generate Minimal Specular Liquid Glass app icons for macOS (.icns) and iOS/PWA (.png).
-Uses 4x supersampling with Pillow + macOS `iconutil` for crisp retina rendering.
+Generate stylized "T-English" Minimal Specular Liquid Glass app icons
+for macOS (.icns) and iOS/PWA (.png).
+Features a stylized "T" + 3-bar Sky Cyan speech-wave "E" emblem and "ENGLISH" pill badge.
 """
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
 MACOS_DIR = ROOT / "macos-host"
 PUBLIC_DIR = ROOT / "public"
 ICONSET_DIR = MACOS_DIR / "AppIcon.iconset"
+
+
+def load_bold_font(px: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    candidates: list[tuple[str, int]] = [
+        ("/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf", 0),
+        ("/System/Library/Fonts/Supplemental/Arial Bold.ttf", 0),
+        ("/System/Library/Fonts/Avenir Next.ttc", 2),
+        ("/System/Library/Fonts/HelveticaNeue.ttc", 1),
+        ("/System/Library/Fonts/SFNSRounded.ttf", 0),
+    ]
+    for path_str, index in candidates:
+        p = Path(path_str)
+        if p.exists():
+            try:
+                return ImageFont.truetype(str(p), px, index=index)
+            except OSError:
+                continue
+    return ImageFont.load_default()
 
 
 def draw_icon(size: int, *, mac_squircle_inset: bool) -> Image.Image:
@@ -23,62 +41,122 @@ def draw_icon(size: int, *, mac_squircle_inset: bool) -> Image.Image:
     img = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
-    # macOS Big Sur / Tahoe icons sit on an ~824/1024 inset squircle with 100/1024 margin.
-    # iOS/PWA icons are full-bleed square (OS applies its own mask).
     margin = round(canvas * 0.0976) if mac_squircle_inset else 0
     box = [margin, margin, canvas - margin - 1, canvas - margin - 1]
-    inner_size = canvas - 2 * margin
-    radius = round(inner_size * 0.225) if mac_squircle_inset else 0
+    inner = canvas - 2 * margin
+    radius = round(inner * 0.225) if mac_squircle_inset else 0
 
-    bg_color = (20, 23, 32, 255)        # #141720 Deep Slate Dark
-    surface_color = (24, 28, 40, 255)   # #181C28 Elevated Specular Surface
-    border_color = (255, 255, 255, 72)  # Crisp specular hairline
-    fg_color = (243, 245, 249, 255)     # #F3F5F9
-    cyan_color = (56, 189, 248, 255)    # #38BDF8
+    bg_color = (18, 21, 30, 255)         # #12151E Outer Rim
+    surface_color = (24, 29, 42, 255)    # #181D2A Elevated Specular Glass
+    pill_color = (30, 37, 54, 255)       # #1E2536 Badge Fill
+    border_color = (255, 255, 255, 82)   # Crisp specular hairline
+    cyan_border = (56, 189, 248, 160)    # Sky Cyan pill border
+    fg_color = (244, 247, 252, 255)      # #F4F7FC Crisp White
+    cyan_color = (56, 189, 248, 255)     # #38BDF8 Sky Cyan
+    cyan_soft = (224, 242, 254, 255)     # #E0F2FE Text
 
     if mac_squircle_inset:
-        draw.rounded_rectangle(box, radius=radius, fill=bg_color, outline=border_color, width=max(4, round(inner_size * 0.018)))
-        inner_pad = round(inner_size * 0.025)
         draw.rounded_rectangle(
-            [box[0] + inner_pad, box[1] + inner_pad, box[2] - inner_pad, box[3] - inner_pad],
-            radius=max(4, radius - inner_pad),
+            box,
+            radius=radius,
+            fill=bg_color,
+            outline=border_color,
+            width=max(4, round(inner * 0.018)),
+        )
+        pad = round(inner * 0.024)
+        draw.rounded_rectangle(
+            [box[0] + pad, box[1] + pad, box[2] - pad, box[3] - pad],
+            radius=max(4, radius - pad),
             fill=surface_color,
         )
     else:
         draw.rectangle(box, fill=surface_color)
 
-    # Geometry inside active square — crisp "T" with generous separation before cyan dot
     cx = canvas / 2
     cy = canvas / 2
-    mark_w = inner_size * 0.56
-    stroke = max(6, round(inner_size * 0.072))
+    show_wordmark = size >= 64
+
+    emblem_cy = cy - inner * (0.095 if show_wordmark else 0.0)
+    stroke = max(6, round(inner * 0.066))
     r_cap = stroke / 2
 
-    top_y = cy - mark_w * 0.36
-    bot_y = cy + mark_w * 0.38
-    left_x = cx - mark_w * 0.45
-    right_x = cx + mark_w * 0.45
-    foot_left = cx - mark_w * 0.20
-    foot_right = cx + mark_w * 0.20
-
-    def draw_capsule(x1: float, y1: float, x2: float, y2: float) -> None:
-        draw.line([(x1, y1), (x2, y2)], fill=fg_color, width=stroke)
+    def draw_capsule(
+        x1: float,
+        y1: float,
+        x2: float,
+        y2: float,
+        color: tuple[int, int, int, int],
+        w: int = stroke,
+    ) -> None:
+        r = w / 2
+        draw.line([(x1, y1), (x2, y2)], fill=color, width=w)
         for px, py in ((x1, y1), (x2, y2)):
-            draw.ellipse([px - r_cap, py - r_cap, px + r_cap, py + r_cap], fill=fg_color)
+            draw.ellipse([px - r, py - r, px + r, py + r], fill=color)
 
-    # Monogram "T"
-    draw_capsule(left_x, top_y, right_x, top_y)
-    draw_capsule(cx, top_y, cx, bot_y)
-    draw_capsule(foot_left, bot_y, foot_right, bot_y)
+    # Balanced composition:
+    # Left/Top: Stylized T (symmetric top bar + stem + compact base foot)
+    # Right (nestled cleanly under right wing of T with clear gap): 3 Sky Cyan speech-wave bars forming "E"
+    t_stem_x = cx - inner * 0.145
+    t_left = t_stem_x - inner * 0.145
+    t_right = cx + inner * 0.145
+    t_top_y = emblem_cy - inner * 0.165
+    t_bot_y = emblem_cy + inner * 0.175
 
-    # Accent Sky Cyan dot cleanly separated from bottom foot
-    dot_r = inner_size * 0.064
-    dot_cx = cx + mark_w * 0.41
-    dot_cy = bot_y - mark_w * 0.06
-    draw.ellipse(
-        [dot_cx - dot_r, dot_cy - dot_r, dot_cx + dot_r, dot_cy + dot_r],
-        fill=cyan_color,
-    )
+    # Clean stylized "T" with subtle serif foot and Sky Cyan speech-spark dot at top-right
+    draw_capsule(t_left, t_top_y, t_right, t_top_y, fg_color)
+    draw_capsule(t_stem_x, t_top_y, t_stem_x, t_bot_y, fg_color)
+    draw_capsule(t_stem_x - inner * 0.070, t_bot_y, t_stem_x + inner * 0.070, t_bot_y, fg_color)
+
+    # Clear horizontal gap between T foot right edge (-0.145 + 0.070 + 0.033 = -0.042)
+    # and E left edge (e_x0 - 0.030 = +0.025)
+    e_stroke = max(5, round(inner * 0.058))
+    e_x0 = cx + inner * 0.055
+    e_top_y = emblem_cy - inner * 0.030
+    e_mid_y = emblem_cy + inner * 0.072
+    e_bot_y = t_bot_y
+    draw_capsule(e_x0, e_top_y, e_x0 + inner * 0.215, e_top_y, cyan_color, e_stroke)
+    draw_capsule(e_x0, e_mid_y, e_x0 + inner * 0.155, e_mid_y, cyan_color, e_stroke)
+    draw_capsule(e_x0, e_bot_y, e_x0 + inner * 0.235, e_bot_y, cyan_color, e_stroke)
+
+    # Top-right accent dot aligned to the right edge of E
+    dot_r = inner * 0.038
+    dot_x = e_x0 + inner * 0.205
+    dot_y = t_top_y
+    draw.ellipse([dot_x - dot_r, dot_y - dot_r, dot_x + dot_r, dot_y + dot_r], fill=cyan_color)
+
+    # Crisp "ENGLISH" capsule badge below emblem
+    if show_wordmark:
+        pill_w = inner * 0.64
+        pill_h = inner * 0.175
+        pill_cx = cx
+        pill_cy = box[1] + inner * 0.775
+        pill_rect = [
+            pill_cx - pill_w / 2,
+            pill_cy - pill_h / 2,
+            pill_cx + pill_w / 2,
+            pill_cy + pill_h / 2,
+        ]
+        draw.rounded_rectangle(
+            pill_rect,
+            radius=pill_h / 2,
+            fill=pill_color,
+            outline=cyan_border,
+            width=max(3, round(inner * 0.012)),
+        )
+
+        font_px = max(16, round(inner * 0.092))
+        font = load_bold_font(font_px)
+        letters = list("ENGLISH")
+        tracking = inner * 0.020
+        widths = []
+        for ch in letters:
+            bb = draw.textbbox((0, 0), ch, font=font)
+            widths.append(bb[2] - bb[0])
+        total_w = sum(widths) + tracking * (len(letters) - 1)
+        cur_x = pill_cx - total_w / 2
+        for ch, w_ch in zip(letters, widths):
+            draw.text((cur_x + w_ch / 2, pill_cy + inner * 0.004), ch, font=font, fill=cyan_soft, anchor="mm")
+            cur_x += w_ch + tracking
 
     return img.resize((size, size), Image.Resampling.LANCZOS)
 
@@ -107,7 +185,6 @@ def main() -> None:
     subprocess.run(["iconutil", "-c", "icns", str(ICONSET_DIR), "-o", str(icns_path)], check=True)
     shutil.rmtree(ICONSET_DIR)
 
-    # iOS & PWA PNG icons
     PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
     draw_icon(180, mac_squircle_inset=False).save(PUBLIC_DIR / "apple-touch-icon.png", "PNG")
     draw_icon(192, mac_squircle_inset=True).save(PUBLIC_DIR / "icon-192.png", "PNG")
