@@ -63,26 +63,7 @@ export const FloatingMiniDock: React.FC<FloatingMiniDockProps> = ({
   const currentCard = cards[loopIndex % Math.max(1, cards.length)];
 
   return (
-    <div
-      className="hide-mobile"
-      style={{
-        position: 'fixed',
-        bottom: 16,
-        right: 20,
-        zIndex: 75,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        padding: '6px 12px',
-        borderRadius: 99,
-        background: 'var(--menu-bg)',
-        backdropFilter: 'blur(32px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(32px) saturate(180%)',
-        border: '1px solid var(--line2)',
-        boxShadow: 'var(--pop)',
-        fontSize: 11.5,
-      }}
-    >
+    <div className="floating-mini-dock hide-mobile">
       <button
         type="button"
         className={`gb sm ${timerRunning ? 'hl' : ''}`}

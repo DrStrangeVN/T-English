@@ -55,7 +55,13 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pitchSamplesRef = useRef<number[]>([]);
+  const pitchTimerRef = useRef<number | null>(null);
   const loopTimerRef = useRef<number | null>(null);
+
+  const loopingRef = useRef(looping);
+  loopingRef.current = looping;
+  const playActionRef = useRef<() => void>(() => undefined);
+  const recordActionRef = useRef<() => void>(() => undefined);
 
   const track = SHADOWING_TRACKS[trackIdx];
   const contrast = MINIMAL_PAIRS_DATA[mpIdx] ?? MINIMAL_PAIRS_DATA[0];
@@ -63,6 +69,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
 
   const selectTrack = (idx: number) => {
     stopSpeaking();
+    if (loopTimerRef.current) window.clearTimeout(loopTimerRef.current);
     setIsPlaying(false);
     setTrackIdx(idx);
     const next = SHADOWING_TRACKS[idx];
@@ -70,6 +77,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
     const initialEval = evaluatePronunciation(next.text, next.text);
     setResult(initialEval);
     setSpokenText('');
+    setMicNote('');
   };
 
   const handlePlay = () => {
@@ -85,7 +93,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
         accent: track.accent,
         rate,
         onEnd: () => {
-          if (looping) {
+          if (loopingRef.current) {
             loopTimerRef.current = window.setTimeout(playOnce, 600);
           } else {
             setIsPlaying(false);
@@ -100,6 +108,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
     return () => {
       stopSpeaking();
       if (loopTimerRef.current) window.clearTimeout(loopTimerRef.current);
+      if (pitchTimerRef.current) window.clearInterval(pitchTimerRef.current);
       recSessionRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
       audioCtxRef.current?.close().catch(() => undefined);
@@ -109,13 +118,23 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
   const stopRecordingAndScore = (finalTranscript: string) => {
     recSessionRef.current?.stop();
     recSessionRef.current = null;
+    if (pitchTimerRef.current) {
+      window.clearInterval(pitchTimerRef.current);
+      pitchTimerRef.current = null;
+    }
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     audioCtxRef.current?.close().catch(() => undefined);
     audioCtxRef.current = null;
     setIsRecording(false);
 
-    const textToScore = finalTranscript.trim() || spokenText.trim() || customText;
+    const textToScore = (finalTranscript || spokenText).trim();
+    if (!textToScore) {
+      setMicNote('Chưa nhận diện được giọng nói — hãy nói gần micro hơn hoặc nhập câu đọc thử vào ô bên dưới để chấm điểm.');
+      onShowToast('Không có dữ liệu giọng nói để chấm điểm');
+      return;
+    }
+
     const rawPitches = pitchSamplesRef.current;
     let normalizedPitch: number[] | undefined;
     if (rawPitches.length >= 6) {
@@ -160,17 +179,21 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
         analyser.fftSize = 2048;
         src.connect(analyser);
         const buf = new Float32Array(analyser.fftSize);
-        const sampleTick = () => {
+        // Sample F0 at ~12.5 Hz (every 80ms), capped at 240 samples to preserve battery/CPU
+        pitchTimerRef.current = window.setInterval(() => {
           if (!streamRef.current) return;
           analyser.getFloatTimeDomainData(buf);
           const f0 = estimatePitchHz(buf, ctx.sampleRate);
-          if (f0) pitchSamplesRef.current.push(f0);
-          requestAnimationFrame(sampleTick);
-        };
-        requestAnimationFrame(sampleTick);
+          if (f0) {
+            if (pitchSamplesRef.current.length >= 240) {
+              pitchSamplesRef.current.shift();
+            }
+            pitchSamplesRef.current.push(f0);
+          }
+        }, 80);
       }
     } catch {
-      setMicNote('Không truy cập được micro vật lý — bạn có thể gõ câu đọc thử bên dưới.');
+      setMicNote('Không truy cập được micro vật lý — hãy nhập câu đọc thử vào ô bên dưới để kiểm tra.');
     }
 
     const session = startSpeechCapture({
@@ -186,17 +209,20 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
     recSessionRef.current = session;
   };
 
+  playActionRef.current = handlePlay;
+  recordActionRef.current = () => void handleToggleRecord();
+
   useEffect(() => {
+    if (studioTab !== 'shadowing') return;
     const onKey = (e: KeyboardEvent) => {
-      if (studioTab !== 'shadowing') return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       if (e.code === 'Space') {
         e.preventDefault();
-        handlePlay();
+        playActionRef.current();
       } else if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
-        handleToggleRecord();
+        recordActionRef.current();
       } else if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey) {
         e.preventDefault();
         setLooping((v) => !v);
@@ -204,7 +230,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, [studioTab]);
 
   const pitchPaths = useMemo(() => {
     const toPath = (pts: number[]) =>
@@ -242,11 +268,10 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Sub-mode switcher: Shadowing Studio vs Minimal Pairs Drill */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div className="seg">
           <button type="button" className={studioTab === 'shadowing' ? 'on' : ''} onClick={() => setStudioTab('shadowing')}>
-            Shadowing &amp; Pitch F0 Studio (8 bài)
+            Shadowing &amp; Pitch F0 (8 bài)
           </button>
           <button
             type="button"
@@ -256,7 +281,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
               setInspectedPhoneme(contrast.phonemeA);
             }}
           >
-            Minimal Pairs Ear &amp; Mouth Drill (12 cặp âm)
+            Minimal Pairs Drill (12 cặp âm)
           </button>
         </div>
       </div>
@@ -278,7 +303,6 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
           </div>
 
           <div className="split-2">
-            {/* Left: AB-Loop Audio + Pitch Contour F0 + Word-by-Word IPA */}
             <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div className="ph" style={{ marginBottom: 2 }}>
                 <div>
@@ -287,7 +311,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                     {track.accent} · {track.durationSec}s · <kbd>Space</kbd> Nghe · <kbd>R</kbd> Thu âm · <kbd>L</kbd> Lặp
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   {[0.75, 0.9, 1.0, 1.25].map((sp) => (
                     <button
                       key={sp}
@@ -302,6 +326,8 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
               </div>
 
               <textarea
+                id="shadowing-target-text"
+                name="shadowing-target-text"
                 className="textarea-field"
                 rows={2}
                 value={customText}
@@ -338,7 +364,6 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                 </button>
               </div>
 
-              {/* Pitch Contour F0 */}
               <div
                 style={{
                   padding: 12,
@@ -347,7 +372,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                   border: '1px solid var(--line)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
                   <span>Đường Cao độ Giọng nói (Pitch Contour F0)</span>
                   <div style={{ display: 'flex', gap: 10 }}>
                     <span style={{ color: 'var(--cyan)' }}>— Giọng chuẩn</span>
@@ -363,7 +388,6 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                 </svg>
               </div>
 
-              {/* Interactive Word-by-Word Phoneme Breakdown */}
               <div>
                 <div style={{ fontSize: 11.5, fontWeight: 620, color: 'var(--muted)', marginBottom: 8 }}>
                   Phân tích từng từ &amp; âm vị IPA (bấm vào từ để nghe + xem khẩu hình):
@@ -399,7 +423,6 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                 </div>
               </div>
 
-              {/* Coach Shane Connected Speech Breakdown */}
               <div style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
                 <div style={{ fontSize: 11.5, fontWeight: 650, marginBottom: 6 }}>
                   Giải phẫu Nối âm &amp; Nuốt âm (Connected Speech — Coach Shane Method):
@@ -425,7 +448,6 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
               </div>
             </div>
 
-            {/* Right: Score Summary, VocalTractSVG, Weak Phoneme Coaching */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="panel">
                 <div className="ph">
@@ -435,7 +457,18 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                   </span>
                 </div>
 
-                <div className="u-box" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginBottom: 12 }}>
+                <div
+                  style={{
+                    borderRadius: 12,
+                    background: 'var(--raised)',
+                    border: '1px solid var(--line)',
+                    padding: '10px 12px',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))',
+                    gap: 8,
+                    marginBottom: 12,
+                  }}
+                >
                   <div className="u-col">
                     <div style={{ fontSize: 10.5, color: 'var(--muted)' }}>Tổng điểm</div>
                     <div className="kpi-val ok" style={{ fontSize: 18 }}>{result.overallScore}%</div>
@@ -455,13 +488,15 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <label style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    Bản ghi âm nhận diện (hoặc gõ thử câu đọc lệch để chấm điểm IPA):
+                  <label htmlFor="shadowing-spoken-input" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                    Bản ghi âm nhận diện (hoặc nhập câu đọc thử để chấm điểm IPA):
                   </label>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <input
+                      id="shadowing-spoken-input"
+                      name="shadowing-spoken-input"
                       className="input-field"
-                      style={{ flex: 1 }}
+                      style={{ flex: '1 1 180px', minWidth: 0 }}
                       value={spokenText}
                       onChange={(e) => setSpokenText(e.target.value)}
                       placeholder="VD: We design dis architecture to be resilien..."
@@ -469,7 +504,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                     <button
                       type="button"
                       className="gb"
-                      onClick={() => stopRecordingAndScore(spokenText || customText)}
+                      onClick={() => stopRecordingAndScore(spokenText)}
                     >
                       Chấm điểm
                     </button>
@@ -516,7 +551,6 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
           </div>
         </>
       ) : (
-        /* Minimal Pairs Ear & Mouth Drill */
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="filters" style={{ marginBottom: 0 }}>
             {MINIMAL_PAIRS_DATA.map((mp, idx) => (
@@ -595,11 +629,11 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   className={`gb ${inspectedPhoneme === contrast.phonemeA ? 'hl' : ''}`}
-                  style={{ flex: 1, justifyContent: 'center' }}
+                  style={{ flex: '1 1 140px', justifyContent: 'center' }}
                   onClick={() => setInspectedPhoneme(contrast.phonemeA)}
                 >
                   Xem khẩu hình /{contrast.phonemeA}/
@@ -607,7 +641,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                 <button
                   type="button"
                   className={`gb ${inspectedPhoneme === contrast.phonemeB ? 'hl' : ''}`}
-                  style={{ flex: 1, justifyContent: 'center' }}
+                  style={{ flex: '1 1 140px', justifyContent: 'center' }}
                   onClick={() => setInspectedPhoneme(contrast.phonemeB)}
                 >
                   Xem khẩu hình /{contrast.phonemeB}/
@@ -616,10 +650,9 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
 
               <VocalTractSVG phoneme={inspectedPhoneme} />
 
-              {/* Blind Ear Training Test */}
               <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div className="ph" style={{ marginBottom: 0 }}>
-                  <b>Bài Test Tai Nghe Phân Biệt Âm (Ear Training)</b>
+                  <b>Bài Test Tai Nghe Phân Biệt Âm</b>
                   <button
                     type="button"
                     className="gb sm"
@@ -634,7 +667,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
 
                 <button type="button" className="pb" onClick={playBlindMinimalWord}>
                   <IconVolume size={14} />
-                  <span>Phát ngẫu nhiên 1 từ trong cặp ({activePair.wordA} / {activePair.wordB})</span>
+                  <span>Phát ngẫu nhiên ({activePair.wordA} / {activePair.wordB})</span>
                 </button>
 
                 <div className="grid2">

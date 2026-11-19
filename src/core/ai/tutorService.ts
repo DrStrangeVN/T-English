@@ -1,11 +1,10 @@
 /**
  * Multi-Provider AI Tutor & Linguistic Engine
- * Supports live OpenAI / Gemini / Anthropic / Local Ollama endpoints
- * plus an intelligent built-in Linguistic Simulation Engine & Memory Ledger
- * so all features work immediately offline or without an API key.
+ * Supports live OpenAI / Gemini / Local Ollama endpoints with 15s timeout,
+ * multi-turn conversation history, transparent fallback reporting, and Memory Ledger.
  */
 
-export type AIProvider = 'builtin' | 'openai' | 'gemini' | 'anthropic' | 'ollama';
+export type AIProvider = 'builtin' | 'openai' | 'gemini' | 'ollama';
 
 export interface AIConfig {
   provider: AIProvider;
@@ -30,6 +29,7 @@ export interface TurnCorrection {
   c1Upgrade: string;
   explainVi: string;
   extractedVocab: string[];
+  detectedMistakePattern?: string;
   score: number;
 }
 
@@ -38,6 +38,8 @@ export interface TutorReply {
   aiTextVi: string;
   correction: TurnCorrection;
   memoryTriggered?: string;
+  source: 'live' | 'fallback';
+  fallbackReason?: string;
 }
 
 export interface SyntaxClause {
@@ -51,54 +53,63 @@ const GRAMMAR_RULES: Array<{
   fix: (m: string) => string;
   explainVi: string;
   issueSnippet: string;
+  memoryLabel: string;
 }> = [
   {
     pattern: /\bi am agree\b/gi,
     fix: () => 'I agree',
     issueSnippet: 'am agree',
+    memoryLabel: 'I am agree -> I agree',
     explainVi: '"Agree" là động từ thường, KHÔNG đi kèm động từ to-be "am/is/are". Hãy dùng trực tiếp "I agree" hoặc "I completely agree".',
   },
   {
     pattern: /\bdiscuss about\b/gi,
     fix: () => 'discuss',
     issueSnippet: 'discuss about',
+    memoryLabel: 'discuss about -> discuss',
     explainVi: 'Động từ "discuss" mang nghĩa "thảo luận về..." nên là ngoại động từ, không dùng giới từ "about" phía sau.',
   },
   {
     pattern: /\bdepend of\b/gi,
     fix: () => 'depend on',
     issueSnippet: 'depend of',
+    memoryLabel: 'depend of -> depend on',
     explainVi: 'Cụm cố định trong tiếng Anh là "depend on" (hoặc "rely on"), không dùng "of".',
   },
   {
     pattern: /\bin the other hand\b/gi,
     fix: () => 'on the other hand',
     issueSnippet: 'in the other hand',
+    memoryLabel: 'in the other hand -> on the other hand',
     explainVi: 'Thành ngữ chuyển ý chuẩn luôn dùng giới từ "on": "On the other hand" (Mặt khác).',
   },
   {
     pattern: /\bmore better\b/gi,
     fix: () => 'much better',
     issueSnippet: 'more better',
+    memoryLabel: 'more better -> much better',
     explainVi: '"Better" đã là dạng so sánh hơn của "good", không ghép thêm "more". Muốn nhấn mạnh hãy dùng "much better" hoặc "far better".',
   },
   {
     pattern: /\byesterday i go\b/gi,
     fix: () => 'yesterday I went',
     issueSnippet: 'yesterday I go',
+    memoryLabel: 'yesterday I go -> yesterday I went',
     explainVi: 'Có trạng từ chỉ quá khứ "yesterday" nên động từ "go" phải chia ở thì quá khứ đơn là "went".',
   },
   {
     pattern: /\bhave many experience\b/gi,
     fix: () => 'have extensive experience',
     issueSnippet: 'many experience',
+    memoryLabel: 'many experience -> extensive experience',
     explainVi: '"Experience" (kinh nghiệm) là danh từ không đếm được, không dùng "many". Hãy dùng "a lot of experience" hoặc cấp C1 "extensive experience".',
   },
   {
     pattern: /\baccording to me\b/gi,
     fix: () => 'in my opinion / from my perspective',
     issueSnippet: 'according to me',
-    explainVi: 'Người bản xứ không dùng "according to me" (chỉ dùng according to + người khác/nguồn tin). Hãy thay bằng "In my view" hoặc "From my perspective".',
+    memoryLabel: 'according to me -> from my perspective',
+    explainVi: 'Người bản xứ không dùng "according to me". Hãy thay bằng "In my view" hoặc "From my perspective".',
   },
 ];
 
@@ -121,16 +132,17 @@ export function analyzeUtteranceLocally(userText: string): TurnCorrection {
   let corrected = trimmed;
   const explanations: string[] = [];
   const issueSnippets: string[] = [];
+  let detectedMistakePattern: string | undefined;
 
   for (const rule of GRAMMAR_RULES) {
     if (rule.pattern.test(corrected)) {
       corrected = corrected.replace(rule.pattern, rule.fix);
       explanations.push(rule.explainVi);
       issueSnippets.push(rule.issueSnippet);
+      if (!detectedMistakePattern) detectedMistakePattern = rule.memoryLabel;
     }
   }
 
-  // Capitalize first letter & add ending punctuation
   corrected = corrected.charAt(0).toUpperCase() + corrected.slice(1);
   if (!/[.!?]$/.test(corrected)) corrected += '.';
 
@@ -176,6 +188,7 @@ export function analyzeUtteranceLocally(userText: string): TurnCorrection {
     c1Upgrade,
     explainVi,
     extractedVocab: words.length > 0 ? words : ['perspective', 'articulate'],
+    detectedMistakePattern,
     score,
   };
 }
@@ -184,10 +197,11 @@ export async function generateTutorReply(params: {
   scenarioTitle: string;
   scenarioPrompt: string;
   userText: string;
+  history?: Array<{ sender: 'ai' | 'user'; text: string }>;
   memoryLedger: MemoryLedgerItem[];
   config: AIConfig;
 }): Promise<TutorReply> {
-  const { scenarioTitle, scenarioPrompt, userText, memoryLedger, config } = params;
+  const { scenarioTitle, scenarioPrompt, userText, history = [], memoryLedger, config } = params;
   const localCorrection = analyzeUtteranceLocally(userText);
 
   const activeMemory = memoryLedger.find((m) => !m.resolved);
@@ -195,137 +209,171 @@ export async function generateTutorReply(params: {
     ? `By the way, try using "${activeMemory.targetVocab}" in your next answer so we reinforce what we practiced earlier.`
     : '';
 
-  // Live API call if user configured an API key or Ollama
-  if (config.provider === 'openai' && config.apiKey.trim()) {
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey.trim()}`,
-        },
-        body: JSON.stringify({
-          model: config.model || 'gpt-4o-mini',
-          temperature: 0.4,
-          response_format: { type: 'json_object' },
-          messages: [
-            {
-              role: 'system',
-              content:
-                `You are T-English AI Tutor in scenario "${scenarioTitle}" (${scenarioPrompt}). ` +
-                `Return strict JSON with keys: aiText, aiTextVi, corrected, c1Upgrade, explainVi, score (0-100). ` +
-                (activeMemory ? `Remind learner to reuse target word "${activeMemory.targetVocab}".` : ''),
-            },
-            { role: 'user', content: userText },
-          ],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
-        if (parsed.aiText) {
-          return {
-            aiText: parsed.aiText,
-            aiTextVi: parsed.aiTextVi || 'Phản hồi trực tiếp từ OpenAI Tutor.',
-            correction: {
-              ...localCorrection,
-              corrected: parsed.corrected || localCorrection.corrected,
-              c1Upgrade: parsed.c1Upgrade || localCorrection.c1Upgrade,
-              explainVi: parsed.explainVi || localCorrection.explainVi,
-              score: typeof parsed.score === 'number' ? parsed.score : localCorrection.score,
-            },
-            memoryTriggered: activeMemory?.targetVocab,
-          };
-        }
-      }
-    } catch {
-      // Fall through cleanly to built-in linguistic engine
-    }
-  }
+  const recentHistory = history.slice(-8);
+  const systemPrompt =
+    `You are T-English AI Tutor in scenario "${scenarioTitle}" (${scenarioPrompt}). ` +
+    `Return strict JSON with keys: aiText, aiTextVi, corrected, c1Upgrade, explainVi, score (0-100). ` +
+    (activeMemory ? `Remind learner to reuse target word "${activeMemory.targetVocab}".` : '');
 
-  if (config.provider === 'gemini' && config.apiKey.trim()) {
+  let fallbackReason: string | undefined;
+
+  if (config.provider !== 'builtin') {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+
     try {
-      const model = config.model || 'gemini-2.0-flash';
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(config.apiKey.trim())}`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [
-            {
-              parts: [
-                {
-                  text:
-                    `Roleplay "${scenarioTitle}" (${scenarioPrompt}). User said: "${userText}". ` +
-                    `Reply strictly as JSON with keys: aiText, aiTextVi, corrected, c1Upgrade, explainVi, score.`,
+      if (config.provider === 'openai') {
+        if (!config.apiKey.trim()) {
+          fallbackReason = 'Chưa nhập OpenAI API Key';
+        } else {
+          const messages = [
+            { role: 'system', content: systemPrompt },
+            ...recentHistory.map((h) => ({
+              role: h.sender === 'ai' ? 'assistant' : 'user',
+              content: h.text,
+            })),
+            { role: 'user', content: userText },
+          ];
+          const res = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${config.apiKey.trim()}`,
+            },
+            body: JSON.stringify({
+              model: config.model || 'gpt-4o-mini',
+              temperature: 0.4,
+              response_format: { type: 'json_object' },
+              messages,
+            }),
+          });
+          if (!res.ok) {
+            fallbackReason = `OpenAI HTTP ${res.status}`;
+          } else {
+            const data = await res.json();
+            const parsed = JSON.parse(data.choices?.[0]?.message?.content ?? '{}');
+            if (parsed.aiText) {
+              return {
+                aiText: parsed.aiText,
+                aiTextVi: parsed.aiTextVi || 'Phản hồi trực tiếp từ OpenAI Tutor.',
+                correction: {
+                  ...localCorrection,
+                  corrected: parsed.corrected || localCorrection.corrected,
+                  c1Upgrade: parsed.c1Upgrade || localCorrection.c1Upgrade,
+                  explainVi: parsed.explainVi || localCorrection.explainVi,
+                  score: typeof parsed.score === 'number' ? parsed.score : localCorrection.score,
                 },
-              ],
-            },
-          ],
-          generationConfig: { responseMimeType: 'application/json' },
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-        const parsed = JSON.parse(raw);
-        if (parsed.aiText) {
-          return {
-            aiText: parsed.aiText,
-            aiTextVi: parsed.aiTextVi || 'Phản hồi trực tiếp từ Gemini Tutor.',
-            correction: {
-              ...localCorrection,
-              corrected: parsed.corrected || localCorrection.corrected,
-              c1Upgrade: parsed.c1Upgrade || localCorrection.c1Upgrade,
-              explainVi: parsed.explainVi || localCorrection.explainVi,
-              score: typeof parsed.score === 'number' ? parsed.score : localCorrection.score,
-            },
-            memoryTriggered: activeMemory?.targetVocab,
-          };
+                memoryTriggered: activeMemory?.targetVocab,
+                source: 'live',
+              };
+            }
+            fallbackReason = 'OpenAI trả về JSON thiếu aiText';
+          }
         }
-      }
-    } catch {
-      // Fall through to built-in engine
-    }
-  }
-
-  if (config.provider === 'ollama' && config.ollamaUrl.trim()) {
-    try {
-      const res = await fetch(`${config.ollamaUrl.replace(/\/$/, '')}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: config.model || 'llama3.2',
-          stream: false,
-          format: 'json',
-          messages: [
-            {
-              role: 'system',
-              content: `Roleplay "${scenarioTitle}". Reply as JSON with keys: aiText, aiTextVi, corrected, c1Upgrade, explainVi, score.`,
+      } else if (config.provider === 'gemini') {
+        if (!config.apiKey.trim()) {
+          fallbackReason = 'Chưa nhập Gemini API Key';
+        } else {
+          const model = config.model || 'gemini-2.0-flash';
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+          const contents = [
+            ...recentHistory.map((h) => ({
+              role: h.sender === 'ai' ? 'model' : 'user',
+              parts: [{ text: h.text }],
+            })),
+            { role: 'user', parts: [{ text: userText }] },
+          ];
+          const res = await fetch(url, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': config.apiKey.trim(),
             },
+            body: JSON.stringify({
+              system_instruction: { parts: [{ text: systemPrompt }] },
+              contents,
+              generationConfig: { responseMimeType: 'application/json' },
+            }),
+          });
+          if (!res.ok) {
+            fallbackReason = `Gemini HTTP ${res.status}`;
+          } else {
+            const data = await res.json();
+            const raw = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+            const parsed = JSON.parse(raw);
+            if (parsed.aiText) {
+              return {
+                aiText: parsed.aiText,
+                aiTextVi: parsed.aiTextVi || 'Phản hồi trực tiếp từ Gemini Tutor.',
+                correction: {
+                  ...localCorrection,
+                  corrected: parsed.corrected || localCorrection.corrected,
+                  c1Upgrade: parsed.c1Upgrade || localCorrection.c1Upgrade,
+                  explainVi: parsed.explainVi || localCorrection.explainVi,
+                  score: typeof parsed.score === 'number' ? parsed.score : localCorrection.score,
+                },
+                memoryTriggered: activeMemory?.targetVocab,
+                source: 'live',
+              };
+            }
+            fallbackReason = 'Gemini trả về JSON thiếu aiText';
+          }
+        }
+      } else if (config.provider === 'ollama') {
+        if (!config.ollamaUrl.trim()) {
+          fallbackReason = 'Chưa cấu hình Ollama URL';
+        } else {
+          const messages = [
+            { role: 'system', content: systemPrompt },
+            ...recentHistory.map((h) => ({
+              role: h.sender === 'ai' ? 'assistant' : 'user',
+              content: h.text,
+            })),
             { role: 'user', content: userText },
-          ],
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const parsed = JSON.parse(data.message?.content ?? '{}');
-        if (parsed.aiText) {
-          return {
-            aiText: parsed.aiText,
-            aiTextVi: parsed.aiTextVi || 'Phản hồi từ Local Ollama Tutor.',
-            correction: {
-              ...localCorrection,
-              corrected: parsed.corrected || localCorrection.corrected,
-              c1Upgrade: parsed.c1Upgrade || localCorrection.c1Upgrade,
-              explainVi: parsed.explainVi || localCorrection.explainVi,
-            },
-            memoryTriggered: activeMemory?.targetVocab,
-          };
+          ];
+          const res = await fetch(`${config.ollamaUrl.replace(/\/$/, '')}/api/chat`, {
+            method: 'POST',
+            signal: controller.signal,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model: config.model || 'llama3.2',
+              stream: false,
+              format: 'json',
+              messages,
+            }),
+          });
+          if (!res.ok) {
+            fallbackReason = `Ollama HTTP ${res.status}`;
+          } else {
+            const data = await res.json();
+            const parsed = JSON.parse(data.message?.content ?? '{}');
+            if (parsed.aiText) {
+              return {
+                aiText: parsed.aiText,
+                aiTextVi: parsed.aiTextVi || 'Phản hồi từ Local Ollama Tutor.',
+                correction: {
+                  ...localCorrection,
+                  corrected: parsed.corrected || localCorrection.corrected,
+                  c1Upgrade: parsed.c1Upgrade || localCorrection.c1Upgrade,
+                  explainVi: parsed.explainVi || localCorrection.explainVi,
+                },
+                memoryTriggered: activeMemory?.targetVocab,
+                source: 'live',
+              };
+            }
+            fallbackReason = 'Ollama trả về JSON thiếu aiText';
+          }
         }
       }
-    } catch {
-      // Fall through to built-in engine
+    } catch (err) {
+      fallbackReason =
+        err instanceof Error && err.name === 'AbortError'
+          ? 'Hết thời gian chờ phản hồi AI (15s)'
+          : 'Lỗi mạng hoặc CORS khi gọi AI Provider';
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -350,6 +398,8 @@ export async function generateTutorReply(params: {
     aiTextVi,
     correction: localCorrection,
     memoryTriggered: activeMemory?.targetVocab,
+    source: 'fallback',
+    fallbackReason,
   };
 }
 

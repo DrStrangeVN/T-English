@@ -140,6 +140,15 @@ function nextForgetStability(d: number, s: number, r: number, w = FSRS_V5_WEIGHT
   return Math.max(0.1, Math.min(s, sMin));
 }
 
+/**
+ * FSRS v5 short-term stability update for same-day reviews (elapsedDays < 1):
+ * S'(S, G) = S * exp(w17 * (G - 3 + w18))
+ */
+export function nextShortTermStability(s: number, rating: FsrsRating, w = FSRS_V5_WEIGHTS): number {
+  const nextS = s * Math.exp(w[17] * (rating - 3 + w[18]));
+  return Math.max(0.1, nextS);
+}
+
 export function formatIntervalLabel(days: number, minutesFallback?: number): string {
   if (minutesFallback !== undefined && days < 1) {
     return `${minutesFallback}m`;
@@ -176,7 +185,6 @@ export function scheduleCard(
       nextState = 'learning';
       scheduledDays = 0;
       due = now + 5 * 60_000;
-      lapses += 1;
     } else if (rating === 2) {
       nextState = 'learning';
       scheduledDays = 0;
@@ -195,13 +203,22 @@ export function scheduleCard(
     nextD = nextDifficulty(card.difficulty, rating);
 
     if (rating === 1) {
-      nextS = nextForgetStability(card.difficulty, card.stability, r);
+      nextS =
+        elapsedDays < 1 && (card.state === 'learning' || card.state === 'relearning')
+          ? nextShortTermStability(card.stability, rating)
+          : nextForgetStability(card.difficulty, card.stability, r);
       nextState = 'relearning';
-      lapses += 1;
+      if (card.state === 'review') {
+        lapses += 1;
+      }
       scheduledDays = 0;
       due = now + 10 * 60_000;
     } else {
-      nextS = nextRecallStability(card.difficulty, card.stability, r, rating);
+      const isSameDayShortTerm =
+        elapsedDays < 1 && (card.state === 'learning' || card.state === 'relearning');
+      nextS = isSameDayShortTerm
+        ? nextShortTermStability(card.stability, rating)
+        : nextRecallStability(card.difficulty, card.stability, r, rating);
       nextState = 'review';
       scheduledDays = nextInterval(nextS, desiredRetention);
       if (rating === 2) {

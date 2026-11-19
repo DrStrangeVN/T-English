@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FsrsCard, FsrsRating } from '../../core/fsrs/fsrsEngine';
 import {
   computeRetrievability,
   exportCardsToAnkiCsv,
   getSchedulingOptions,
 } from '../../core/fsrs/fsrsEngine';
-import { speakEnglish, triggerHaptic } from '../../core/phonetics/speechIO';
+import { exportTextFile, speakEnglish, triggerHaptic } from '../../core/phonetics/speechIO';
 import { playSuccessSound } from '../../core/phonetics/soundEffects';
 import { WordRootGraph } from '../common/WordRootGraph';
 import { IconCheck, IconDownload, IconPlus, IconVolume } from '../icons/Icons';
@@ -13,6 +13,7 @@ import { IconCheck, IconDownload, IconPlus, IconVolume } from '../icons/Icons';
 interface FSRSDeckViewProps {
   cards: FsrsCard[];
   desiredRetention: number;
+  openAddFormNonce?: number;
   onRateCard: (cardId: string, rating: FsrsRating) => void;
   onAddCard: (input: {
     word: string;
@@ -32,6 +33,7 @@ interface FSRSDeckViewProps {
 export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
   cards,
   desiredRetention,
+  openAddFormNonce = 0,
   onRateCard,
   onAddCard,
   onBatchDelete,
@@ -54,6 +56,20 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
   const [newCloze, setNewCloze] = useState('');
   const [newDeck, setNewDeck] = useState('Custom Mined Deck');
 
+  useEffect(() => {
+    if (openAddFormNonce > 0) {
+      setShowAddForm(true);
+    }
+  }, [openAddFormNonce]);
+
+  useEffect(() => {
+    const activeBatch = mode === 'manage' && selectedIds.length > 0;
+    document.body.classList.toggle('batch-active', activeBatch);
+    return () => {
+      document.body.classList.remove('batch-active');
+    };
+  }, [mode, selectedIds.length]);
+
   const decks = useMemo(() => ['All', ...Array.from(new Set(cards.map((c) => c.deck)))], [cards]);
 
   const dueQueue = useMemo(() => {
@@ -69,33 +85,53 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
     [currentCard, desiredRetention]
   );
 
-  const handleGrade = (rating: FsrsRating) => {
-    if (!currentCard) return;
-    onRateCard(currentCard.id, rating);
-    setRevealed(false);
-    setAccentIdx(0);
-    if (rating >= 3) playSuccessSound();
-    triggerHaptic(rating >= 3 ? 'success' : 'light');
+  const handleGrade = useCallback(
+    (rating: FsrsRating) => {
+      if (!currentCard) return;
+      onRateCard(currentCard.id, rating);
+      setRevealed(false);
+      setAccentIdx(0);
+      if (rating >= 3) playSuccessSound();
+      triggerHaptic(rating >= 3 ? 'success' : 'light');
+    },
+    [currentCard, onRateCard]
+  );
+
+  const keyStateRef = useRef({
+    mode,
+    currentCard,
+    revealed,
+    handleGrade,
+  });
+  keyStateRef.current = {
+    mode,
+    currentCard,
+    revealed,
+    handleGrade,
   };
 
   // Keyboard shortcuts for Review Mode: Space to flip, 1/2/3/4 to rate
   useEffect(() => {
-    if (mode !== 'review' || !currentCard) return;
     const onKey = (e: KeyboardEvent) => {
+      const { mode: activeMode, currentCard: card, revealed: isRevealed, handleGrade: grade } =
+        keyStateRef.current;
+      if (activeMode !== 'review' || !card) return;
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-      if (e.code === 'Space' && !revealed) {
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.code === 'Space' && !isRevealed) {
         e.preventDefault();
         setRevealed(true);
-        speakEnglish(currentCard.word);
-      } else if (revealed && ['1', '2', '3', '4'].includes(e.key)) {
+        speakEnglish(card.word);
+      } else if (isRevealed && ['1', '2', '3', '4'].includes(e.key)) {
         e.preventDefault();
-        handleGrade(Number(e.key) as FsrsRating);
+        grade(Number(e.key) as FsrsRating);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  });
+  }, []);
 
   const filteredCards = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -186,12 +222,54 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
         <form onSubmit={handleCreateCard} className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontWeight: 650, fontSize: 13 }}>Thêm thẻ từ vựng mới vào FSRS v5</div>
           <div className="grid2">
-            <input className="input-field" required placeholder="Từ vựng (VD: ephemeral)" value={newWord} onChange={(e) => setNewWord(e.target.value)} />
-            <input className="input-field" placeholder="IPA (tự sinh nếu bỏ trống)" value={newIpa} onChange={(e) => setNewIpa(e.target.value)} />
-            <input className="input-field" required placeholder="Nghĩa tiếng Việt theo ngữ cảnh" value={newMeaning} onChange={(e) => setNewMeaning(e.target.value)} />
-            <input className="input-field" placeholder="Bộ thẻ (Deck)" value={newDeck} onChange={(e) => setNewDeck(e.target.value)} />
+            <input
+              id="fsrs-new-word"
+              name="newWord"
+              aria-label="Từ vựng mới"
+              className="input-field"
+              required
+              placeholder="Từ vựng (VD: ephemeral)"
+              value={newWord}
+              onChange={(e) => setNewWord(e.target.value)}
+            />
+            <input
+              id="fsrs-new-ipa"
+              name="newIpa"
+              aria-label="Phiên âm IPA"
+              className="input-field"
+              placeholder="IPA (tự sinh nếu bỏ trống)"
+              value={newIpa}
+              onChange={(e) => setNewIpa(e.target.value)}
+            />
+            <input
+              id="fsrs-new-meaning"
+              name="newMeaning"
+              aria-label="Nghĩa tiếng Việt"
+              className="input-field"
+              required
+              placeholder="Nghĩa tiếng Việt theo ngữ cảnh"
+              value={newMeaning}
+              onChange={(e) => setNewMeaning(e.target.value)}
+            />
+            <input
+              id="fsrs-new-deck"
+              name="newDeck"
+              aria-label="Tên bộ thẻ (Deck)"
+              className="input-field"
+              placeholder="Bộ thẻ (Deck)"
+              value={newDeck}
+              onChange={(e) => setNewDeck(e.target.value)}
+            />
           </div>
-          <input className="input-field" placeholder="Câu ngữ cảnh Cloze (VD: Containers are {{ephemeral}} workloads.)" value={newCloze} onChange={(e) => setNewCloze(e.target.value)} />
+          <input
+            id="fsrs-new-cloze"
+            name="newCloze"
+            aria-label="Câu ngữ cảnh Cloze"
+            className="input-field"
+            placeholder="Câu ngữ cảnh Cloze (VD: Containers are {{ephemeral}} workloads.)"
+            value={newCloze}
+            onChange={(e) => setNewCloze(e.target.value)}
+          />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button type="button" className="gb" onClick={() => setShowAddForm(false)}>Hủy</button>
             <button type="submit" className="pb">Lưu vào FSRS Deck</button>
@@ -269,7 +347,12 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                     <span style={{ fontSize: 22, fontWeight: 700 }}>{currentCard.word}</span>
                     <span className="mono" style={{ color: 'var(--cyan)', fontSize: 14 }}>{currentCard.ipa}</span>
                     <span className="tag">{currentCard.pos}</span>
-                    <button type="button" className="ib sm" onClick={() => speakEnglish(currentCard.word)}>
+                    <button
+                      type="button"
+                      className="ib sm"
+                      aria-label={`Nghe phát âm từ ${currentCard.word}`}
+                      onClick={() => speakEnglish(currentCard.word)}
+                    >
                       <IconVolume size={14} />
                     </button>
                   </div>
@@ -317,6 +400,7 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                         <button
                           type="button"
                           className="ib sm"
+                          aria-label={`Nghe ví dụ giọng ${activeClip.accent}`}
                           onClick={() =>
                             speakEnglish(activeClip.sentence, {
                               accent: activeClip.accent === 'UK' ? 'UK RP' : 'US General',
@@ -347,7 +431,7 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                 </div>
 
                 {/* 4 FSRS Rating Buttons with 1/2/3/4 shortcuts */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
                   {options.map((opt) => {
                     const color =
                       opt.rating === 1
@@ -407,7 +491,15 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                   {d}
                 </button>
               ))}
-              <input className="f-q" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Lọc từ, nghĩa..." />
+              <input
+                id="fsrs-deck-search"
+                name="fsrsSearch"
+                aria-label="Lọc từ vựng trong kho FSRS"
+                className="f-q"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Lọc từ, nghĩa..."
+              />
             </div>
 
             <div className="seg">
@@ -466,7 +558,13 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                     <div><span className="tag">{c.cefr} · {c.state}</span></div>
                     <div className="col-hide-sm mono" style={{ fontSize: 12 }}>{retPct}</div>
                     <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
-                      <button type="button" className="ib sm" onClick={() => speakEnglish(c.word)} title="Nghe phát âm">
+                      <button
+                        type="button"
+                        className="ib sm"
+                        aria-label={`Nghe phát âm ${c.word}`}
+                        onClick={() => speakEnglish(c.word)}
+                        title="Nghe phát âm"
+                      >
                         <IconVolume size={14} />
                       </button>
                       <button
@@ -492,7 +590,12 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                   <div key={c.id} className="card">
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <button type="button" className={`chk ${checked ? 'on' : ''}`} onClick={() => toggleSelect(c.id)}>
+                        <button
+                          type="button"
+                          className={`chk ${checked ? 'on' : ''}`}
+                          aria-label={`Chọn ${c.word}`}
+                          onClick={() => toggleSelect(c.id)}
+                        >
                           {checked && <IconCheck size={11} />}
                         </button>
                         <b style={{ fontSize: 14 }}>{c.word}</b>
@@ -504,7 +607,12 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
                     <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>Collocations: {c.collocations.join(' · ')}</div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
                       <span style={{ fontSize: 11, color: 'var(--dim)' }}>S = {c.stability.toFixed(1)}d · {c.deck}</span>
-                      <button type="button" className="ib sm" onClick={() => speakEnglish(c.word)}>
+                      <button
+                        type="button"
+                        className="ib sm"
+                        aria-label={`Nghe phát âm ${c.word}`}
+                        onClick={() => speakEnglish(c.word)}
+                      >
                         <IconVolume size={14} />
                       </button>
                     </div>
@@ -523,13 +631,7 @@ export const FSRSDeckView: React.FC<FSRSDeckViewProps> = ({
               onClick={() => {
                 const chosen = cards.filter((c) => selectedIds.includes(c.id));
                 const csv = exportCardsToAnkiCsv(chosen);
-                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'T-English-Selected.csv';
-                a.click();
-                URL.revokeObjectURL(url);
+                exportTextFile('T-English-Selected.csv', csv, 'text/csv;charset=utf-8;');
                 onShowToast(`Đã xuất ${chosen.length} từ sang Anki CSV`);
               }}
             >

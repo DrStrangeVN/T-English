@@ -28,6 +28,7 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
   const [totalKeystrokes, setTotalKeystrokes] = useState(0);
   const [correctKeystrokes, setCorrectKeystrokes] = useState(0);
   const startTimeRef = useRef<number | null>(null);
+  const lastKeyTimeRef = useRef<number | null>(null);
   const [wpm, setWpm] = useState(0);
   const [wpmHistory, setWpmHistory] = useState<number[]>([52, 58, 61, 64, 68]);
 
@@ -51,15 +52,19 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
   }, [itemIdx, packIdx, mode, currentItem.word]);
 
   const handleTypingChange = (val: string) => {
-    if (!startTimeRef.current) startTimeRef.current = Date.now();
+    const now = Date.now();
+    if (!startTimeRef.current || (lastKeyTimeRef.current !== null && now - lastKeyTimeRef.current > 15_000)) {
+      startTimeRef.current = now;
+      setCorrectKeystrokes(0);
+    }
+    lastKeyTimeRef.current = now;
     const target = currentItem.word.toLowerCase();
     const clean = val.toLowerCase();
 
     if (clean.length > typed.length) {
-      setTotalKeystrokes((n) => n + 1);
-      const nextChar = clean[clean.length - 1];
-      const expectedChar = target[typed.length];
-      if (nextChar !== expectedChar) {
+      const addedLen = clean.length - typed.length;
+      setTotalKeystrokes((n) => n + addedLen);
+      if (!target.startsWith(clean)) {
         if (soundEffectsEnabled) playErrorSound();
         setHadError(true);
         setTyped('');
@@ -68,7 +73,7 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
         return;
       }
       if (soundEffectsEnabled) playKeyClickSound();
-      setCorrectKeystrokes((n) => n + 1);
+      setCorrectKeystrokes((n) => n + addedLen);
     }
 
     setTyped(clean);
@@ -76,8 +81,9 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
     if (clean === target) {
       const nextDone = completedCount + 1;
       setCompletedCount(nextDone);
-      const elapsedMin = Math.max(0.05, (Date.now() - (startTimeRef.current ?? Date.now())) / 60_000);
-      const calcWpm = Math.min(180, Math.round((correctKeystrokes + 1) / 5 / elapsedMin));
+      const elapsedMin = Math.max(0.05, (now - (startTimeRef.current ?? now)) / 60_000);
+      const addedLen = Math.max(1, clean.length - typed.length);
+      const calcWpm = Math.min(180, Math.round((correctKeystrokes + addedLen) / 5 / elapsedMin));
       setWpm(calcWpm);
       setWpmHistory((prev) => [...prev.slice(-11), calcWpm]);
       if (calcWpm > bestWpm) onUpdateBestWpm(calcWpm);
@@ -154,6 +160,9 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
                     setPackIdx(idx);
                     setItemIdx(0);
                     setTyped('');
+                    startTimeRef.current = null;
+                    lastKeyTimeRef.current = null;
+                    setCorrectKeystrokes(0);
                   }}
                 >
                   <span>{p.name}</span>
@@ -203,7 +212,12 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 6 }}>
               <span className="mono" style={{ color: 'var(--cyan)', fontSize: 13 }}>{currentItem.ipa}</span>
-              <button type="button" className="ib sm" onClick={() => speakEnglish(currentItem.word)}>
+              <button
+                type="button"
+                className="ib sm"
+                aria-label={`Nghe phát âm từ ${currentItem.word}`}
+                onClick={() => speakEnglish(currentItem.word)}
+              >
                 <IconVolume size={15} />
               </button>
             </div>
@@ -214,6 +228,9 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
             )}
 
             <input
+              id="qwerty-typing-input"
+              name="qwertyTyped"
+              aria-label="Gõ chính xác từ vựng tiếng Anh"
               autoFocus
               className="input-field mono"
               style={{
@@ -295,6 +312,9 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
           )}
 
           <textarea
+            id="dictation-answer-input"
+            name="dictationInput"
+            aria-label="Nhập nội dung nghe chép chính tả"
             className="textarea-field"
             rows={3}
             value={dictInput}

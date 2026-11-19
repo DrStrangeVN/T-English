@@ -217,6 +217,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', paddingLeft: 14, borderBottom: '1px solid var(--line)' }}>
           <IconSearch size={15} />
           <input
+            id="command-palette-search"
+            name="commandPaletteSearch"
+            aria-label="Tìm kiếm nhanh từ điển, mẫu câu Ludwig hoặc lệnh điều hướng"
             autoFocus
             value={query}
             onChange={(e) => {

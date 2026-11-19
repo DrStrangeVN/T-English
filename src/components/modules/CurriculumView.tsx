@@ -29,11 +29,13 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
   const [drillResult, setDrillResult] = useState<null | boolean>(null);
   const [quizChoices, setQuizChoices] = useState<Record<number, number>>({});
 
-  // Placement Test state
   const [placementAnswers, setPlacementAnswers] = useState<Record<string, number>>({});
   const [placementSubmitted, setPlacementSubmitted] = useState(false);
 
   const unit = CURRICULUM_UNITS[unitIdx] ?? CURRICULUM_UNITS[0];
+
+  const answeredCount = Object.keys(placementAnswers).length;
+  const allPlacementAnswered = answeredCount === PLACEMENT_TEST_QUESTIONS.length;
 
   const placementResult = useMemo(() => {
     let correct = 0;
@@ -81,8 +83,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
 
       {mode === 'units' ? (
         <div className="split-2">
-          {/* Left: Structured Curriculum Unit Selector & Grammar Blueprint */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             <div className="filters" style={{ marginBottom: 0 }}>
               {CURRICULUM_UNITS.map((u, idx) => {
                 const done = completedUnitIds.includes(u.id);
@@ -150,7 +151,12 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
                         <div style={{ fontWeight: 600, fontSize: 12.5 }}>{pat.en}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{pat.vi}</div>
                       </div>
-                      <button type="button" className="ib sm" onClick={() => speakEnglish(pat.en)}>
+                      <button
+                        type="button"
+                        className="ib sm"
+                        aria-label={`Nghe mẫu câu: ${pat.en}`}
+                        onClick={() => speakEnglish(pat.en)}
+                      >
                         <IconVolume size={14} />
                       </button>
                     </div>
@@ -160,20 +166,23 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
             </div>
           </div>
 
-          {/* Right: Interactive Sentence Transformation + Quiz Unlock */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
             <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <b>Bài tập Viết lại câu (Sentence Transformation)</b>
+              <label htmlFor="curriculum-drill-input" style={{ fontWeight: 650 }}>
+                Bài tập Viết lại câu (Sentence Transformation)
+              </label>
               <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>
                 {unit.transformationDrill.promptEn}
               </div>
               <input
+                id="curriculum-drill-input"
+                name="curriculum-drill"
                 className="input-field"
                 value={drillInput}
                 onChange={(e) => setDrillInput(e.target.value)}
                 placeholder={`Gợi ý từ khóa: ${unit.transformationDrill.hintKeyword}...`}
               />
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                 <button type="button" className="pb sm" onClick={handleCheckDrill}>
                   Kiểm tra câu
                 </button>
@@ -192,7 +201,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
 
             <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div className="ph" style={{ marginBottom: 0 }}>
-                <b>Kiểm tra Mở khóa Unit {unit.unitNumber}</b>
+                <b>Kiểm tra Hoàn thành Unit {unit.unitNumber}</b>
               </div>
               {unit.quiz.map((q, qIdx) => {
                 const picked = quizChoices[qIdx];
@@ -255,7 +264,7 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
                 <span>
                   {completedUnitIds.includes(unit.id)
                     ? `Đã hoàn thành Unit ${unit.unitNumber}`
-                    : `Hoàn thành & Mở khóa Unit tiếp theo`}
+                    : `Hoàn thành Unit ${unit.unitNumber}`}
                 </span>
               </button>
             </div>
@@ -268,11 +277,11 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
             <div>
               <b>Bài Kiểm Tra Xếp Lớp CEFR A1 → C2 (12 Câu)</b>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                Đánh giá toàn diện Ngữ pháp, Từ vựng học thuật, Phát âm IPA và Đọc hiểu
+                Hoàn thành đầy đủ 12 câu để đánh giá chính xác Ngữ pháp, Từ vựng, Phát âm và Đọc hiểu
               </div>
             </div>
             <span className="tag">
-              Đã chọn {Object.keys(placementAnswers).length}/{PLACEMENT_TEST_QUESTIONS.length}
+              Đã chọn {answeredCount}/{PLACEMENT_TEST_QUESTIONS.length}
             </span>
           </div>
 
@@ -324,17 +333,27 @@ export const CurriculumView: React.FC<CurriculumViewProps> = ({
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, borderTop: '1px solid var(--line)', paddingTop: 12 }}>
             {!placementSubmitted ? (
-              <button
-                type="button"
-                className="pb"
-                onClick={() => {
-                  setPlacementSubmitted(true);
-                  onSavePlacementLevel(placementResult.cefr);
-                  playSuccessSound();
-                }}
-              >
-                Nộp bài &amp; Xếp hạng CEFR
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="pb"
+                  disabled={!allPlacementAnswered}
+                  style={{ opacity: allPlacementAnswered ? 1 : 0.5, cursor: allPlacementAnswered ? 'pointer' : 'not-allowed' }}
+                  onClick={() => {
+                    if (!allPlacementAnswered) return;
+                    setPlacementSubmitted(true);
+                    onSavePlacementLevel(placementResult.cefr);
+                    playSuccessSound();
+                  }}
+                >
+                  Nộp bài &amp; Xếp hạng CEFR
+                </button>
+                {!allPlacementAnswered && (
+                  <span style={{ fontSize: 11.5, color: 'var(--amber)' }}>
+                    Còn thiếu {PLACEMENT_TEST_QUESTIONS.length - answeredCount} câu chưa chọn đáp án.
+                  </span>
+                )}
+              </div>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap', gap: 10 }}>
                 <div>

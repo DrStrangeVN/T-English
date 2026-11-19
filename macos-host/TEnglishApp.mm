@@ -21,21 +21,39 @@
 
 - (void)webView:(WKWebView *)webView startURLSchemeTask:(id<WKURLSchemeTask>)urlSchemeTask {
     NSURL *url = urlSchemeTask.request.URL;
-    NSString *relPath = url.path;
-    if (!relPath || relPath.length == 0 || [relPath isEqualToString:@"/"]) {
-        relPath = @"/index.html";
+    NSString *rawPath = url.path;
+    if (!rawPath || rawPath.length == 0 || [rawPath isEqualToString:@"/"]) {
+        rawPath = @"/index.html";
     }
-    if ([relPath hasPrefix:@"/"]) {
-        relPath = [relPath substringFromIndex:1];
+    if ([rawPath hasPrefix:@"/"]) {
+        rawPath = [rawPath substringFromIndex:1];
     }
 
-    NSString *fullPath = [self.webRoot stringByAppendingPathComponent:relPath];
+    // Canonicalize webRoot and resolved target path to prevent path traversal
+    NSString *canonicalRoot = [[self.webRoot stringByResolvingSymlinksInPath] stringByStandardizingPath];
+    NSString *allowedPrefix = [canonicalRoot hasSuffix:@"/"] ? canonicalRoot : [canonicalRoot stringByAppendingString:@"/"];
+    NSString *candidate = [canonicalRoot stringByAppendingPathComponent:rawPath];
+    NSString *canonicalTarget = [[candidate stringByResolvingSymlinksInPath] stringByStandardizingPath];
+
+    if (![canonicalTarget hasPrefix:allowedPrefix] && ![canonicalTarget isEqualToString:canonicalRoot]) {
+        NSData *forbidden = [@"Forbidden" dataUsingEncoding:NSUTF8StringEncoding];
+        NSHTTPURLResponse *resp403 = [[NSHTTPURLResponse alloc] initWithURL:url
+                                                                  statusCode:403
+                                                                 HTTPVersion:@"HTTP/1.1"
+                                                                headerFields:@{@"Content-Type": @"text/plain; charset=utf-8"}];
+        [urlSchemeTask didReceiveResponse:resp403];
+        [urlSchemeTask didReceiveData:forbidden];
+        [urlSchemeTask didFinish];
+        return;
+    }
+
     NSFileManager *fm = [NSFileManager defaultManager];
-    if (![fm fileExistsAtPath:fullPath]) {
-        fullPath = [self.webRoot stringByAppendingPathComponent:@"index.html"];
+    BOOL isDir = NO;
+    if (![fm fileExistsAtPath:canonicalTarget isDirectory:&isDir] || isDir) {
+        canonicalTarget = [canonicalRoot stringByAppendingPathComponent:@"index.html"];
     }
 
-    NSData *data = [NSData dataWithContentsOfFile:fullPath];
+    NSData *data = [NSData dataWithContentsOfFile:canonicalTarget];
     if (!data) {
         NSError *err = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorFileDoesNotExist userInfo:nil];
         [urlSchemeTask didFailWithError:err];
@@ -43,8 +61,8 @@
     }
 
     NSDictionary *headers = @{
-        @"Content-Type": [self mimeTypeForPath:fullPath],
-        @"Access-Control-Allow-Origin": @"*",
+        @"Content-Type": [self mimeTypeForPath:canonicalTarget],
+        @"Access-Control-Allow-Origin": @"tenglish://app",
         @"Cache-Control": @"no-cache"
     };
     NSHTTPURLResponse *response = [[NSHTTPURLResponse alloc] initWithURL:url
@@ -72,6 +90,7 @@
 @property (nonatomic, strong) BundleSchemeHandler *schemeHandler;
 @property (nonatomic, assign) BOOL lightMode;
 @property (nonatomic, copy) NSString *glassMode;
+@property (nonatomic, assign) BOOL userReduceTransparency;
 @end
 
 @implementation TEnglishAppDelegate
@@ -100,6 +119,7 @@
 
 - (WKWebViewConfiguration *)makeSharedWebConfig {
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
+    config.websiteDataStore = [WKWebsiteDataStore defaultDataStore];
     [config setURLSchemeHandler:self.schemeHandler forURLScheme:@"tenglish"];
     [config.userContentController addScriptMessageHandler:self name:@"tenglish"];
     return config;
@@ -107,11 +127,12 @@
 
 - (void)applyVibrancyAndAppearance {
     BOOL sysReduce = [NSWorkspace sharedWorkspace].accessibilityDisplayShouldReduceTransparency;
+    BOOL effectiveReduce = sysReduce || self.userReduceTransparency;
     NSAppearance *appearance = [NSAppearance appearanceNamed:(self.lightMode ? NSAppearanceNameAqua : NSAppearanceNameDarkAqua)];
     [NSApp setAppearance:appearance];
     self.window.appearance = appearance;
 
-    if (sysReduce) {
+    if (effectiveReduce) {
         self.vibrancy.hidden = YES;
         self.window.backgroundColor = self.lightMode
             ? [NSColor colorWithSRGBRed:0.957 green:0.961 blue:0.973 alpha:1.0]
@@ -125,9 +146,12 @@
             : (solid ? NSVisualEffectMaterialUnderWindowBackground : NSVisualEffectMaterialHUDWindow);
     }
 
-    NSString *js = [NSString stringWithFormat:@"document.body && document.body.classList.toggle('reduce-transparency', %@);",
-                    sysReduce ? @"true" : @"false"];
+    NSString *js = [NSString stringWithFormat:
+        @"if(document.body){document.body.classList.toggle('reduce-transparency', %@);document.body.classList.toggle('light', %@);}",
+        effectiveReduce ? @"true" : @"false",
+        self.lightMode ? @"true" : @"false"];
     [self.webView evaluateJavaScript:js completionHandler:nil];
+    [self.popoverWebView evaluateJavaScript:js completionHandler:nil];
 }
 
 - (void)accessibilityDisplayOptionsDidChange:(NSNotification *)note {
@@ -139,19 +163,63 @@
     self.vibrancy.state = visible ? NSVisualEffectStateFollowsWindowActiveState : NSVisualEffectStateInactive;
 }
 
+// Grant microphone permission inside WKWebView for our bundled tenglish:// origin
+- (void)webView:(WKWebView *)webView
+    requestMediaCapturePermissionForOrigin:(WKSecurityOrigin *)origin
+                          initiatedByFrame:(WKFrameInfo *)frame
+                                      type:(WKMediaCaptureType)type
+                           decisionHandler:(void (^)(WKPermissionDecision))decisionHandler API_AVAILABLE(macos(12.0)) {
+    if ([origin.protocol isEqualToString:@"tenglish"] && [origin.host isEqualToString:@"app"]) {
+        decisionHandler(WKPermissionDecisionGrant);
+    } else {
+        decisionHandler(WKPermissionDecisionDeny);
+    }
+}
+
+- (void)saveFileWithSuggestedName:(NSString *)filename content:(NSString *)content {
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.nameFieldStringValue = filename.length > 0 ? filename : @"T-English-Export.csv";
+    panel.canCreateDirectories = YES;
+    [panel beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse result) {
+        if (result == NSModalResponseOK && panel.URL) {
+            NSError *err = nil;
+            [content writeToURL:panel.URL atomically:YES encoding:NSUTF8StringEncoding error:&err];
+        }
+    }];
+}
+
 - (void)userContentController:(WKUserContentController *)userContentController
       didReceiveScriptMessage:(WKScriptMessage *)message {
     if (![message.body isKindOfClass:[NSDictionary class]]) return;
     NSDictionary *dict = (NSDictionary *)message.body;
+    NSString *action = dict[@"action"];
+
+    if ([action isEqualToString:@"saveFile"]) {
+        NSString *filename = [dict[@"filename"] isKindOfClass:[NSString class]] ? dict[@"filename"] : @"export.csv";
+        NSString *content = [dict[@"content"] isKindOfClass:[NSString class]] ? dict[@"content"] : @"";
+        [self saveFileWithSuggestedName:filename content:content];
+        return;
+    }
+
+    if ([action isEqualToString:@"stateUpdated"]) {
+        WKWebView *other = (message.webView == self.webView) ? self.popoverWebView : self.webView;
+        [other evaluateJavaScript:@"window.dispatchEvent(new CustomEvent('tenglish-sync'));" completionHandler:nil];
+        return;
+    }
+
     NSString *theme = dict[@"theme"];
     NSString *glass = dict[@"glass"];
     NSString *summary = dict[@"statusSummary"];
+    NSNumber *reduceNum = dict[@"reduceTransparency"];
 
     if ([theme isKindOfClass:[NSString class]]) {
         self.lightMode = [theme isEqualToString:@"light"];
     }
     if ([glass isKindOfClass:[NSString class]]) {
         self.glassMode = glass;
+    }
+    if ([reduceNum isKindOfClass:[NSNumber class]]) {
+        self.userReduceTransparency = [reduceNum boolValue];
     }
     if ([summary isKindOfClass:[NSString class]] && self.statusItem.button) {
         self.statusItem.button.toolTip = [NSString stringWithFormat:@"T-English — %@", summary];
@@ -172,6 +240,7 @@
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     self.lightMode = NO;
     self.glassMode = @"balanced";
+    self.userReduceTransparency = NO;
 
     NSString *resourceWeb = [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"web"];
     self.schemeHandler = [[BundleSchemeHandler alloc] init];
@@ -188,6 +257,7 @@
     self.window.backgroundColor = [NSColor clearColor];
     self.window.titlebarAppearsTransparent = YES;
     self.window.titleVisibility = NSWindowTitleHidden;
+    self.window.movableByWindowBackground = YES;
     self.window.minSize = NSMakeSize(940, 640);
     [self.window center];
 
@@ -222,6 +292,7 @@
     NSViewController *popVC = [[NSViewController alloc] init];
     self.popoverWebView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 364, 480)
                                              configuration:[self makeSharedWebConfig]];
+    self.popoverWebView.UIDelegate = self;
     [self.popoverWebView setValue:@NO forKey:@"drawsBackground"];
     [self.popoverWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"tenglish://app/index.html?mode=menubar"]]];
     popVC.view = self.popoverWebView;

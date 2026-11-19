@@ -49,7 +49,7 @@ describe('FSRS v5 Engine', () => {
     expect(nextInterval(10, 0.85)).toBeGreaterThan(10);
   });
 
-  it('schedules new cards across all 4 ratings with increasing stability', () => {
+  it('schedules new cards across all 4 ratings without incrementing lapses on initial failure', () => {
     const now = 1_700_000_000_000;
     const options = getSchedulingOptions(sampleCard, now, 0.9);
     expect(options).toHaveLength(4);
@@ -60,15 +60,23 @@ describe('FSRS v5 Engine', () => {
     const easy = options[3].nextCard;
 
     expect(again.state).toBe('learning');
-    expect(again.lapses).toBe(1);
+    expect(again.lapses).toBe(0);
     expect(hard.stability).toBeGreaterThan(again.stability);
     expect(good.stability).toBeGreaterThan(hard.stability);
     expect(easy.stability).toBeGreaterThan(good.stability);
     expect(easy.scheduledDays).toBeGreaterThanOrEqual(good.scheduledDays);
   });
 
-  it('increases stability on successful subsequent recall and drops on lapse', () => {
+  it('increases stability on subsequent recall, uses short-term updates for same-day learning, and increments lapses when a review card is forgotten', () => {
     const t0 = 1_700_000_000_000;
+    const firstAgain = scheduleCard(sampleCard, 1, t0, 0.9);
+    expect(firstAgain.state).toBe('learning');
+    expect(firstAgain.lapses).toBe(0);
+
+    // Same-day (< 1 day) learning transition should follow short-term stability curve
+    const sameDayGood = scheduleCard(firstAgain, 3, t0 + 300_000, 0.9);
+    expect(sameDayGood.stability).toBeGreaterThan(firstAgain.stability);
+
     const afterGood = scheduleCard(sampleCard, 3, t0, 0.9);
     const t1 = afterGood.due;
     const afterSecondGood = scheduleCard(afterGood, 3, t1, 0.9);

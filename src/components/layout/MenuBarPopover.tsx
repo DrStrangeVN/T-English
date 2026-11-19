@@ -87,7 +87,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
           onClick={() => setTab('lookup')}
         >
           <IconSearch size={13} />
-          <span>Tra từ ⌥Space</span>
+          <span>Tra từ nhanh</span>
         </button>
       </div>
 
@@ -162,6 +162,9 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <input
+            id="menubar-lookup-input"
+            name="menubarLookup"
+            aria-label="Tra từ tiếng Anh hoặc nghĩa tiếng Việt"
             className="input-field"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -191,7 +194,12 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
                     {c.meaningVi}
                   </div>
                 </div>
-                <button type="button" className="ib sm" onClick={() => speakEnglish(c.word)}>
+                <button
+                  type="button"
+                  className="ib sm"
+                  aria-label={`Nghe phát âm ${c.word}`}
+                  onClick={() => speakEnglish(c.word)}
+                >
                   <IconVolume size={14} />
                 </button>
               </div>

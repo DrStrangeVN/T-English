@@ -8,6 +8,8 @@ import { IconPlus, IconSparkChat, IconVolume } from '../icons/Icons';
 
 interface ImmersiveReaderProps {
   wordFamiliarity: Record<string, 1 | 2 | 3 | 4 | 5>;
+  customArticles?: ReaderArticle[];
+  onAddCustomArticle?: (article: ReaderArticle) => void;
   onSetWordFamiliarity: (word: string, level: 1 | 2 | 3 | 4 | 5) => void;
   onMineSentence: (payload: {
     word: string;
@@ -23,13 +25,25 @@ interface ImmersiveReaderProps {
 
 export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
   wordFamiliarity,
+  customArticles = [],
+  onAddCustomArticle,
   onSetWordFamiliarity,
   onMineSentence,
   onDiscussWithTutor,
   onShowToast,
 }) => {
-  const [articles, setArticles] = useState<ReaderArticle[]>(READER_ARTICLES);
-  const [activeId, setActiveId] = useState(READER_ARTICLES[0].id);
+  const [localAddedArticles, setLocalAddedArticles] = useState<ReaderArticle[]>([]);
+  const articles = useMemo(() => {
+    const merged = [...customArticles, ...localAddedArticles, ...READER_ARTICLES];
+    const seen = new Set<string>();
+    return merged.filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [customArticles, localAddedArticles]);
+
+  const [activeId, setActiveId] = useState(articles[0]?.id ?? READER_ARTICLES[0].id);
   const [lessonStep, setLessonStep] = useState<1 | 2 | 3 | 4>(2);
   const [activeSentenceIdx, setActiveSentenceIdx] = useState(0);
   const [blurVi, setBlurVi] = useState(false);
@@ -99,6 +113,25 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       .filter((l) => l.length > 6);
     if (lines.length === 0) return;
 
+    // Extract matching glossary words from the imported body for Step 1 Key Vocabulary
+    const tokens = Array.from(
+      new Set(
+        importBody
+          .toLowerCase()
+          .split(/[^a-z]+/)
+          .filter((w) => w.length >= 3)
+      )
+    );
+    const matchedVocab = tokens
+      .filter((w) => Boolean(READER_GLOSSARY[w]))
+      .slice(0, 8)
+      .map((w) => ({
+        word: w,
+        ipa: READER_GLOSSARY[w].ipa,
+        pos: READER_GLOSSARY[w].pos,
+        meaningVi: READER_GLOSSARY[w].meaningVi,
+      }));
+
     const custom: ReaderArticle = {
       id: `custom-${Date.now()}`,
       kind: 'YouTube Transcript',
@@ -106,7 +139,7 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       source: 'Imported Article / YouTube Subtitles',
       cefr: 'B2',
       minutes: Math.max(2, Math.ceil(lines.length / 3)),
-      vocabPreview: [],
+      vocabPreview: matchedVocab,
       sentences: lines.map((line, i) => ({
         id: `cs-${i}`,
         timestamp: `00:${String(i * 12).padStart(2, '0')}`,
@@ -116,7 +149,12 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       comprehensionQuiz: [],
       discussionQuestions: ['What is the key takeaway from this imported text?'],
     };
-    setArticles((prev) => [custom, ...prev]);
+
+    if (onAddCustomArticle) {
+      onAddCustomArticle(custom);
+    } else {
+      setLocalAddedArticles((prev) => [custom, ...prev]);
+    }
     setActiveId(custom.id);
     setActiveSentenceIdx(0);
     setLessonStep(2);
@@ -129,7 +167,15 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Article Selector + Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 8,
+        }}
+      >
         <div className="filters" style={{ marginBottom: 0 }}>
           {articles.map((a) => (
             <button
@@ -149,7 +195,7 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className={`gb ${blurVi ? 'hl' : ''}`} onClick={() => setBlurVi((v) => !v)}>
             {blurVi ? 'Hiện phụ đề Việt' : 'Làm mờ phụ đề Việt'}
           </button>
@@ -179,8 +225,19 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       {showImport && (
         <form onSubmit={handleImportSubmit} className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontWeight: 650 }}>Dán nội dung YouTube Transcript, Podcast hoặc Bài báo tiếng Anh</div>
-          <input className="input-field" placeholder="Tiêu đề bài đọc / Video..." value={importTitle} onChange={(e) => setImportTitle(e.target.value)} />
+          <input
+            id="reader-import-title"
+            name="importTitle"
+            aria-label="Tiêu đề bài đọc hoặc video"
+            className="input-field"
+            placeholder="Tiêu đề bài đọc / Video..."
+            value={importTitle}
+            onChange={(e) => setImportTitle(e.target.value)}
+          />
           <textarea
+            id="reader-import-body"
+            name="importBody"
+            aria-label="Nội dung đoạn văn tiếng Anh để nạp vào Reader"
             className="textarea-field"
             rows={4}
             required
@@ -197,7 +254,7 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
 
       {lessonStep === 1 && (
         <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="ph" style={{ marginBottom: 0 }}>
+          <div className="ph" style={{ marginBottom: 0, flexWrap: 'wrap', gap: 8 }}>
             <div>
               <b>Bước 1 (Engoo Method): Nắm trước Từ vựng Trọng tâm</b>
               <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
@@ -209,38 +266,72 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
             </button>
           </div>
 
-          <div className="cards">
-            {article.vocabPreview.map((v) => (
-              <div key={v.word} className="card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <b style={{ fontSize: 15 }}>{v.word}</b>{' '}
-                    <span className="mono" style={{ color: 'var(--cyan)', fontSize: 12 }}>{v.ipa}</span>
+          {article.vocabPreview.length === 0 ? (
+            <div
+              style={{
+                padding: '14px',
+                borderRadius: 12,
+                background: 'var(--raised)',
+                border: '1px solid var(--line)',
+                fontSize: 12.5,
+                color: 'var(--muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap',
+              }}
+            >
+              <span>
+                Ngữ liệu nhập tự do chưa có sẵn danh sách từ khóa cố định. Chuyển sang Bước 2 để bấm trực tiếp vào bất kỳ từ nào và tự đào câu sang FSRS v5.
+              </span>
+              <button type="button" className="gb sm" onClick={() => setLessonStep(2)}>
+                Mở Bước 2 →
+              </button>
+            </div>
+          ) : (
+            <div className="cards">
+              {article.vocabPreview.map((v) => (
+                <div key={v.word} className="card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <b style={{ fontSize: 15 }}>{v.word}</b>{' '}
+                      <span className="mono" style={{ color: 'var(--cyan)', fontSize: 12 }}>{v.ipa}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="ib sm"
+                      aria-label={`Nghe phát âm từ ${v.word}`}
+                      onClick={() => speakEnglish(v.word)}
+                    >
+                      <IconVolume size={14} />
+                    </button>
                   </div>
-                  <button type="button" className="ib sm" onClick={() => speakEnglish(v.word)}>
-                    <IconVolume size={14} />
-                  </button>
+                  <div style={{ fontSize: 12.5 }}>{v.meaningVi}</div>
+                  <span className="tag" style={{ alignSelf: 'flex-start' }}>{v.pos}</span>
                 </div>
-                <div style={{ fontSize: 12.5 }}>{v.meaningVi}</div>
-                <span className="tag" style={{ alignSelf: 'flex-start' }}>{v.pos}</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {lessonStep === 2 && (
         <div className="split-2">
           {/* Left: Bilingual Interactive Sentences */}
-          <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div className="ph" style={{ marginBottom: 0 }}>
+          <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+            <div className="ph" style={{ marginBottom: 0, flexWrap: 'wrap', gap: 8 }}>
               <div>
                 <b>{article.title}</b>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>
                   {article.source} · Phím tắt: <kbd>A</kbd> Trước · <kbd>S</kbd> Nghe · <kbd>D</kbd> Tiếp
                 </div>
               </div>
-              <button type="button" className="gb sm" onClick={() => speakEnglish(article.sentences.map((s) => s.en).join(' '))}>
+              <button
+                type="button"
+                className="gb sm"
+                onClick={() => speakEnglish(article.sentences.map((s) => s.en).join(' '))}
+              >
                 <IconVolume size={13} />
                 <span>Đọc toàn bài</span>
               </button>
@@ -280,6 +371,7 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
                         <button
                           type="button"
                           className="ib sm"
+                          aria-label={`Nghe câu số ${idx + 1}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             speakEnglish(sent.en);
@@ -329,19 +421,34 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
           </div>
 
           {/* Right: 364px Liquid Glass Word Popover + AI Syntax X-Ray */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start', minWidth: 0 }}>
             {inspectedWord && inspectedGloss ? (
-              <div className="pop-float" style={{ width: '100%', maxWidth: 364 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div className="pop-float reader-popover" style={{ width: '100%', maxWidth: 364 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
                   <div>
                     <div style={{ fontSize: 18, fontWeight: 700 }}>{inspectedGloss.key}</div>
                     <div className="mono" style={{ fontSize: 12, color: 'var(--cyan)' }}>
                       {inspectedGloss.ipa} · {inspectedGloss.pos}
                     </div>
                   </div>
-                  <button type="button" className="ib" onClick={() => speakEnglish(inspectedGloss.key)}>
-                    <IconVolume size={16} />
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      className="ib"
+                      aria-label={`Nghe phát âm ${inspectedGloss.key}`}
+                      onClick={() => speakEnglish(inspectedGloss.key)}
+                    >
+                      <IconVolume size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="gb sm"
+                      aria-label="Đóng thẻ tra từ"
+                      onClick={() => setInspectedWord(null)}
+                    >
+                      Đóng
+                    </button>
+                  </div>
                 </div>
 
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{inspectedGloss.meaningVi}</div>
@@ -406,8 +513,18 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{xraySentence}</div>
                   {xrayClauses.map((cl, i) => (
-                    <div key={i} style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--raised)' }}>
-                      <span className="tag" style={{ color: 'var(--cyan)', background: 'var(--cyan-s)', marginBottom: 4 }}>{cl.role}</span>
+                    <div
+                      key={i}
+                      style={{
+                        padding: '8px 10px',
+                        borderRadius: 10,
+                        border: '1px solid var(--line)',
+                        background: 'var(--raised)',
+                      }}
+                    >
+                      <span className="tag" style={{ color: 'var(--cyan)', background: 'var(--cyan-s)', marginBottom: 4 }}>
+                        {cl.role}
+                      </span>
                       <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 4 }}>{cl.text}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{cl.explanationVi}</div>
                     </div>
@@ -425,50 +542,76 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
 
       {lessonStep === 3 && (
         <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div className="ph" style={{ marginBottom: 0 }}>
+          <div className="ph" style={{ marginBottom: 0, flexWrap: 'wrap', gap: 8 }}>
             <b>Bước 3: Kiểm tra Đọc hiểu (Reading Comprehension Quiz)</b>
             <button type="button" className="pb sm" onClick={() => setLessonStep(4)}>
               Sang Bước 4: Thảo luận AI →
             </button>
           </div>
-          {article.comprehensionQuiz.map((q, qIdx) => {
-            const picked = quizAnswers[qIdx];
-            return (
-              <div key={qIdx} style={{ padding: 12, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--raised)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div style={{ fontWeight: 650, fontSize: 13 }}>{qIdx + 1}. {q.q}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {q.options.map((opt, oIdx) => {
-                    const isPicked = picked === oIdx;
-                    const isRight = oIdx === q.answerIdx;
-                    return (
-                      <button
-                        key={oIdx}
-                        type="button"
-                        className="gb sm"
-                        style={{
-                          justifyContent: 'flex-start',
-                          height: 'auto',
-                          padding: '7px 10px',
-                          textAlign: 'left',
-                          borderColor: isPicked ? (isRight ? 'var(--green)' : 'var(--rose)') : undefined,
-                          color: isPicked ? (isRight ? 'var(--green)' : 'var(--rose)') : undefined,
-                        }}
-                        onClick={() => {
-                          setQuizAnswers((prev) => ({ ...prev, [qIdx]: oIdx }));
-                          if (isRight) playSuccessSound();
-                        }}
-                      >
-                        {opt}
-                      </button>
-                    );
-                  })}
+          {article.comprehensionQuiz.length === 0 ? (
+            <div
+              style={{
+                padding: '14px',
+                borderRadius: 12,
+                border: '1px solid var(--line)',
+                background: 'var(--raised)',
+                fontSize: 12.5,
+                color: 'var(--muted)',
+              }}
+            >
+              Ngữ liệu nhập tùy chỉnh chưa có bộ câu hỏi trắc nghiệm. Bạn có thể chuyển sang Bước 4 để thảo luận nội dung bài viết với AI Tutor.
+            </div>
+          ) : (
+            article.comprehensionQuiz.map((q, qIdx) => {
+              const picked = quizAnswers[qIdx];
+              return (
+                <div
+                  key={qIdx}
+                  style={{
+                    padding: 12,
+                    borderRadius: 12,
+                    border: '1px solid var(--line)',
+                    background: 'var(--raised)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 8,
+                  }}
+                >
+                  <div style={{ fontWeight: 650, fontSize: 13 }}>{qIdx + 1}. {q.q}</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {q.options.map((opt, oIdx) => {
+                      const isPicked = picked === oIdx;
+                      const isRight = oIdx === q.answerIdx;
+                      return (
+                        <button
+                          key={oIdx}
+                          type="button"
+                          className="gb sm"
+                          style={{
+                            justifyContent: 'flex-start',
+                            height: 'auto',
+                            padding: '7px 10px',
+                            textAlign: 'left',
+                            borderColor: isPicked ? (isRight ? 'var(--green)' : 'var(--rose)') : undefined,
+                            color: isPicked ? (isRight ? 'var(--green)' : 'var(--rose)') : undefined,
+                          }}
+                          onClick={() => {
+                            setQuizAnswers((prev) => ({ ...prev, [qIdx]: oIdx }));
+                            if (isRight) playSuccessSound();
+                          }}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {picked !== undefined && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{q.explainVi}</div>
+                  )}
                 </div>
-                {picked !== undefined && (
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{q.explainVi}</div>
-                )}
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </div>
       )}
 

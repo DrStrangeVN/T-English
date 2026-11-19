@@ -107,6 +107,13 @@ export function startSpeechCapture(callbacks: {
     rec.interimResults = true;
     rec.continuous = false;
     let latest = '';
+    let delivered = false;
+
+    const deliverOnce = (txt: string) => {
+      if (delivered || !txt) return;
+      delivered = true;
+      callbacks.onFinal(txt);
+    };
 
     rec.onresult = (event) => {
       let full = '';
@@ -117,12 +124,12 @@ export function startSpeechCapture(callbacks: {
       callbacks.onInterim?.(latest);
       const last = event.results[event.results.length - 1];
       if (last?.isFinal && latest) {
-        callbacks.onFinal(latest);
+        deliverOnce(latest);
       }
     };
     rec.onerror = (ev) => callbacks.onError?.(ev.error || 'microphone_unavailable');
     rec.onend = () => {
-      if (latest) callbacks.onFinal(latest);
+      if (latest) deliverOnce(latest);
     };
     rec.start();
     return {
@@ -150,8 +157,48 @@ export function notifyMacNativeHost(payload: {
     const win = window as unknown as {
       webkit?: { messageHandlers?: { tenglish?: { postMessage: (msg: unknown) => void } } };
     };
-    win.webkit?.messageHandlers?.tenglish?.postMessage(payload);
+    win.webkit?.messageHandlers?.tenglish?.postMessage({
+      action: 'syncAppearance',
+      ...payload,
+    });
   } catch {
     // Web mode no-op
   }
+}
+
+export function notifyMacStateSync(): void {
+  try {
+    const win = window as unknown as {
+      webkit?: { messageHandlers?: { tenglish?: { postMessage: (msg: unknown) => void } } };
+    };
+    win.webkit?.messageHandlers?.tenglish?.postMessage({ action: 'stateUpdated' });
+  } catch {
+    // Web mode no-op
+  }
+}
+
+export function exportTextFile(filename: string, content: string, mimeType = 'text/csv;charset=utf-8;'): void {
+  try {
+    const win = window as unknown as {
+      webkit?: { messageHandlers?: { tenglish?: { postMessage: (msg: unknown) => void } } };
+    };
+    if (win.webkit?.messageHandlers?.tenglish) {
+      win.webkit.messageHandlers.tenglish.postMessage({
+        action: 'saveFile',
+        filename,
+        content,
+      });
+      return;
+    }
+  } catch {
+    // Fall back to browser download
+  }
+
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }

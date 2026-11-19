@@ -3,7 +3,7 @@ import type { NavTab } from '../../App';
 import type { FsrsCard } from '../../core/fsrs/fsrsEngine';
 import { computeRetrievability, forecastWorkload } from '../../core/fsrs/fsrsEngine';
 import { IPA_44_PHONEMES, mapScoreToIeltsBand } from '../../core/phonetics/ipaScorer';
-import type { StudyStats } from '../../core/storage/db';
+import { getTodayIsoDate, type StudyStats } from '../../core/storage/db';
 import { speakEnglish } from '../../core/phonetics/speechIO';
 import { IconCheck, IconCurriculum, IconPen, IconPlay, IconVolume } from '../icons/Icons';
 
@@ -51,6 +51,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const weakestEntry = Object.entries(stats.phonemeMastery).sort((a, b) => a[1] - b[1])[0];
     const hoursDone = (stats.immersionMinutes / 60).toFixed(1);
     const immersionPct = Math.min(100, (stats.immersionMinutes / 60_000) * 100);
+    const knownWordsCount = Object.values(stats.wordFamiliarity).filter((lv) => lv >= 4).length;
 
     return {
       dueCount: dueCards.length,
@@ -61,37 +62,46 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       weakestPhoneme: weakestEntry ? `/${weakestEntry[0]}/ (${weakestEntry[1]}%)` : '/θ/',
       hoursDone,
       immersionPct,
-      totalVocab: 4812 + cards.length,
+      deckTotal: cards.length,
+      knownWordsCount,
     };
   }, [cards, stats]);
 
   const forecast = useMemo(() => forecastWorkload(cards, 14), [cards]);
   const maxDue = Math.max(4, ...forecast.map((f) => f.dueCount));
 
-  // Deterministic 364-day (52 weeks x 7 days) Anki/GitHub activity heatmap
+  // Real 364-day (52 weeks x 7 days) heatmap driven by stats.dailyActivityLog
   const heatmapWeeks = useMemo(() => {
+    const today = Date.now();
+    const totalDays = 52 * 7;
     return Array.from({ length: 52 }, (_, w) =>
       Array.from({ length: 7 }, (_, d) => {
-        const dayIdx = w * 7 + d;
-        const isRecentStreak = dayIdx >= 364 - stats.streakDays;
-        const level = isRecentStreak
-          ? ((dayIdx % 3) + 2)
-          : (dayIdx * 7 + w * 3) % 5 === 0
-            ? 0
-            : ((dayIdx + w) % 4);
-        return { dayIdx, level };
+        const offsetFromToday = totalDays - 1 - (w * 7 + d);
+        const dateKey = getTodayIsoDate(today - offsetFromToday * 86_400_000);
+        const count = stats.dailyActivityLog[dateKey] ?? 0;
+        const level = count === 0 ? 0 : count <= 1 ? 1 : count <= 3 ? 2 : 3;
+        return { dateKey, count, level };
       })
     );
-  }, [stats.streakDays]);
+  }, [stats.dailyActivityLog]);
 
-  const skillMatrix = [
-    { name: 'Listening & Dictation', score: 86, tab: 'qwerty' as NavTab, color: 'var(--cyan)' },
-    { name: 'Speaking & Roleplay', score: 84, tab: 'tutor' as NavTab, color: 'var(--green)' },
-    { name: 'Phonetics & IPA', score: metrics.avgPron, tab: 'shadowing' as NavTab, color: 'var(--indigo)' },
-    { name: 'Reading (Engoo 5-Step)', score: 90, tab: 'reader' as NavTab, color: 'var(--cyan)' },
-    { name: 'Writing (IELTS & RFC)', score: 78, tab: 'writing' as NavTab, color: 'var(--amber)' },
-    { name: 'Lexical & FSRS Recall', score: Math.round(metrics.avgRet), tab: 'fsrs' as NavTab, color: 'var(--green)' },
-  ];
+  const skillMatrix = useMemo(() => {
+    const typingScore = Math.min(99, Math.max(50, Math.round((stats.typingWpmBest / 80) * 100)));
+    const curriculumScore = Math.min(100, Math.max(35, Math.round((stats.completedUnitIds.length / 6) * 100)));
+    const readerKnownRatio = Object.keys(stats.wordFamiliarity).length > 0
+      ? Math.round((Object.values(stats.wordFamiliarity).reduce((a, b) => a + b, 0) / (Object.keys(stats.wordFamiliarity).length * 5)) * 100)
+      : 72;
+    const cefrBase = stats.cefrLevel === 'C2' ? 92 : stats.cefrLevel === 'C1' ? 84 : stats.cefrLevel === 'B2' ? 76 : 64;
+
+    return [
+      { name: 'Listening & Dictation', score: typingScore, tab: 'qwerty' as NavTab, color: 'var(--cyan)' },
+      { name: 'Speaking & Roleplay', score: cefrBase, tab: 'tutor' as NavTab, color: 'var(--green)' },
+      { name: 'Phonetics & IPA', score: metrics.avgPron, tab: 'shadowing' as NavTab, color: 'var(--indigo)' },
+      { name: 'Reading (Engoo 5-Step)', score: readerKnownRatio, tab: 'reader' as NavTab, color: 'var(--cyan)' },
+      { name: 'CEFR Curriculum', score: curriculumScore, tab: 'curriculum' as NavTab, color: 'var(--amber)' },
+      { name: 'Lexical & FSRS Recall', score: Math.round(metrics.avgRet), tab: 'fsrs' as NavTab, color: 'var(--green)' },
+    ];
+  }, [stats, metrics]);
 
   const dailySteps: Array<{
     id: string;
@@ -132,7 +142,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Quick Launch Strip for Placement Test, Curriculum & Writing Studio */}
+      {/* Quick Launch Strip */}
       <div
         className="panel"
         style={{
@@ -144,7 +154,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           padding: '11px 16px',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span className="tag" style={{ color: 'var(--cyan)', background: 'var(--cyan-s)', fontWeight: 700 }}>
             CEFR {stats.cefrLevel}
           </span>
@@ -200,17 +210,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="geist-cell">
           <div className="kpi-label">
-            <span>Active Vocabulary</span>
+            <span>Active Deck &amp; Lexicon</span>
             <span className="tag" style={{ color: 'var(--indigo)', background: 'var(--indigo-s)' }}>
               CEFR {stats.cefrLevel}
             </span>
           </div>
-          <div className="kpi-val">{metrics.totalVocab.toLocaleString()}</div>
+          <div className="kpi-val">{metrics.deckTotal} thẻ</div>
           <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-            Tăng trưởng tuần: <span className="ok">+145 từ</span> · {stats.typingWpmBest} WPM
+            Từ đã thuộc Reader: <span className="ok">{metrics.knownWordsCount}</span> · {stats.typingWpmBest} WPM
           </div>
           <div className="bar">
-            <div className="b-indigo" style={{ width: '76%' }} />
+            <div className="b-indigo" style={{ width: `${Math.min(100, metrics.deckTotal * 3)}%` }} />
           </div>
         </div>
 
@@ -231,23 +241,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 365-Day Anki/GitHub Activity Heatmap + 6-Skill CEFR Matrix */}
+      {/* 365-Day Activity Heatmap + 6-Skill Matrix */}
       <div className="split-2">
         <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div className="ph" style={{ marginBottom: 0 }}>
-            <div>
-              <b>Biểu đồ Nhiệt Học tập 365 Ngày (Consistency Heatmap)</b>
+            <div style={{ minWidth: 0 }}>
+              <b>Biểu đồ Nhiệt Học tập 365 Ngày</b>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Chuỗi liên tiếp {stats.streakDays} ngày · 52 tuần tích lũy 1,000 giờ
+                {Object.keys(stats.dailyActivityLog).length} ngày có ghi nhận · Chuỗi {stats.streakDays} ngày
               </div>
             </div>
             <span className="tag" style={{ color: 'var(--green)', background: 'var(--green-s)' }}>
-              Active Daily
+              Real Log
             </span>
           </div>
 
-          <div style={{ overflowX: 'auto', paddingBottom: 4 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(52, 9px)', gap: 2.5, minWidth: 580 }}>
+          <div style={{ width: '100%', maxWidth: '100%', overflowX: 'auto', paddingBottom: 4 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(52, 9px)', gap: 2.5, width: 'max-content' }}>
               {heatmapWeeks.map((week, wIdx) => (
                 <div key={wIdx} style={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
                   {week.map((day) => {
@@ -261,7 +271,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                             : 'var(--green)';
                     return (
                       <div
-                        key={day.dayIdx}
+                        key={day.dateKey}
+                        title={`${day.dateKey}: ${day.count} hoạt động`}
                         style={{
                           width: 9,
                           height: 9,
@@ -282,7 +293,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="ph" style={{ marginBottom: 0 }}>
             <b>Ma trận 6 Kỹ năng Toàn diện</b>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
             {skillMatrix.map((sk) => (
               <button
                 key={sk.name}
@@ -296,8 +307,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   background: 'var(--raised)',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                  <span style={{ color: 'var(--muted)' }}>{sk.name}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4, gap: 6 }}>
+                  <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sk.name}</span>
                   <b style={{ color: sk.color }}>{sk.score}%</b>
                 </div>
                 <div className="bar" style={{ marginTop: 0 }}>
@@ -339,9 +350,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     borderRadius: 12,
                     border: '1px solid var(--line)',
                     background: done ? 'var(--green-s)' : 'var(--raised)',
+                    flexWrap: 'wrap',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: '1 1 200px' }}>
                     <button
                       type="button"
                       className={`chk ${done ? 'on' : ''}`}
@@ -400,7 +412,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               display: 'grid',
               gridTemplateColumns: 'repeat(14, minmax(0, 1fr))',
               alignItems: 'end',
-              gap: 5,
+              gap: 4,
               height: 150,
               padding: '12px 6px 4px',
               borderRadius: 12,
@@ -460,7 +472,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Bấm vào từng âm vị để nghe từ mẫu và xem hướng dẫn khẩu hình bằng tiếng Việt
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
             <span className="tag" style={{ color: 'var(--green)', background: 'var(--green-s)' }}>≥85% Chuẩn</span>
             <span className="tag" style={{ color: 'var(--amber)', background: 'var(--amber-s)' }}>70–84%</span>
             <span className="tag" style={{ color: 'var(--rose)', background: 'var(--rose-s)' }}>&lt;70% Cần sửa</span>

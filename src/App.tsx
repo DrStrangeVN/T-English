@@ -1,12 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   scheduleCard,
   type FsrsCard,
   type FsrsRating,
 } from './core/fsrs/fsrsEngine';
 import { wordToIpa } from './core/phonetics/ipaScorer';
-import { notifyMacNativeHost } from './core/phonetics/speechIO';
+import { notifyMacNativeHost, notifyMacStateSync } from './core/phonetics/speechIO';
 import {
+  STORAGE_KEY,
+  bumpDailyActivity,
   createDefaultState,
   loadState,
   saveState,
@@ -30,16 +32,33 @@ import {
 import { TopHeader } from './components/layout/TopHeader';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { MenuBarPopover } from './components/layout/MenuBarPopover';
-import { SettingsView } from './components/layout/SettingsView';
 import { FloatingMiniDock } from './components/common/FloatingMiniDock';
 import { DashboardView } from './components/modules/DashboardView';
-import { CurriculumView } from './components/modules/CurriculumView';
-import { ShadowingStudio } from './components/modules/ShadowingStudio';
-import { AITutorView } from './components/modules/AITutorView';
-import { WritingStudioView } from './components/modules/WritingStudioView';
-import { FSRSDeckView } from './components/modules/FSRSDeckView';
-import { ImmersiveReader } from './components/modules/ImmersiveReader';
-import { QwertyDictation } from './components/modules/QwertyDictation';
+
+const CurriculumView = lazy(() =>
+  import('./components/modules/CurriculumView').then((m) => ({ default: m.CurriculumView }))
+);
+const ShadowingStudio = lazy(() =>
+  import('./components/modules/ShadowingStudio').then((m) => ({ default: m.ShadowingStudio }))
+);
+const AITutorView = lazy(() =>
+  import('./components/modules/AITutorView').then((m) => ({ default: m.AITutorView }))
+);
+const WritingStudioView = lazy(() =>
+  import('./components/modules/WritingStudioView').then((m) => ({ default: m.WritingStudioView }))
+);
+const FSRSDeckView = lazy(() =>
+  import('./components/modules/FSRSDeckView').then((m) => ({ default: m.FSRSDeckView }))
+);
+const ImmersiveReader = lazy(() =>
+  import('./components/modules/ImmersiveReader').then((m) => ({ default: m.ImmersiveReader }))
+);
+const QwertyDictation = lazy(() =>
+  import('./components/modules/QwertyDictation').then((m) => ({ default: m.QwertyDictation }))
+);
+const SettingsView = lazy(() =>
+  import('./components/layout/SettingsView').then((m) => ({ default: m.SettingsView }))
+);
 
 export type NavTab =
   | 'dashboard'
@@ -121,6 +140,8 @@ export const App: React.FC = () => {
   const [toast, setToast] = useState<string | null>(null);
   const [preview, setPreview] = useState<ViewportPreview>('auto');
   const [tutorSeedPrompt, setTutorSeedPrompt] = useState<string | null>(null);
+  const [openAddFormNonce, setOpenAddFormNonce] = useState(0);
+  const syncSourceRef = useRef<'local' | 'external'>('local');
 
   const isMenuBarUrlMode = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -138,8 +159,31 @@ export const App: React.FC = () => {
   }, [toast]);
 
   useEffect(() => {
+    if (syncSourceRef.current === 'external') {
+      syncSourceRef.current = 'local';
+      return;
+    }
     saveState(state);
+    notifyMacStateSync();
   }, [state]);
+
+  useEffect(() => {
+    const handleExternalSync = () => {
+      syncSourceRef.current = 'external';
+      setState(loadState());
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === null || e.key === STORAGE_KEY) {
+        handleExternalSync();
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('tenglish-sync', handleExternalSync);
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('tenglish-sync', handleExternalSync);
+    };
+  }, []);
 
   useEffect(() => {
     const body = document.body;
@@ -223,6 +267,7 @@ export const App: React.FC = () => {
         ...prev.stats,
         dailyMinutesDone: prev.stats.dailyMinutesDone + 1,
         immersionMinutes: prev.stats.immersionMinutes + 1,
+        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 1),
       },
     }));
   };
@@ -315,6 +360,7 @@ export const App: React.FC = () => {
           phonemeMastery: updatedMastery,
           dailyMinutesDone: prev.stats.dailyMinutesDone + 2,
           immersionMinutes: prev.stats.immersionMinutes + 2,
+          dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 2),
         },
       };
     });
@@ -327,6 +373,7 @@ export const App: React.FC = () => {
         ...prev.stats,
         dailyMinutesDone: prev.stats.dailyMinutesDone + mins,
         immersionMinutes: prev.stats.immersionMinutes + mins,
+        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, mins),
       },
     }));
   }, []);
@@ -410,7 +457,13 @@ export const App: React.FC = () => {
           </div>
           <b>T-English</b>
           <span className="ver-pill">v2.0</span>
-          <button type="button" className="sb-collapse" title="Thu gọn Sidebar (⌘\)" onClick={toggleSidebarOrDrawer}>
+          <button
+            type="button"
+            className="sb-collapse"
+            aria-label="Thu gọn Sidebar"
+            title="Thu gọn Sidebar (⌘\)"
+            onClick={toggleSidebarOrDrawer}
+          >
             <IconSidebar size={15} />
           </button>
         </div>
@@ -495,194 +548,285 @@ export const App: React.FC = () => {
             setMobileDrawerOpen(false);
             setPreview(m);
           }}
-          onQuickAddCard={() => navigateTo('fsrs')}
+          onQuickAddCard={() => {
+            setOpenAddFormNonce((n) => n + 1);
+            navigateTo('fsrs');
+          }}
         />
 
         <main className="main">
           <div className="wrap" style={{ paddingBottom: 76 }}>
-            {activeTab === 'dashboard' && (
-              <DashboardView
-                cards={state.cards}
-                stats={state.stats}
-                dailyGoalMinutes={state.settings.dailyGoalMinutes}
-                onNavigate={navigateTo}
-                onToggleDailyStep={(stepId) => {
-                  setState((prev) => {
-                    const exists = prev.stats.completedDailySteps.includes(stepId);
-                    const nextSteps = exists
-                      ? prev.stats.completedDailySteps.filter((s) => s !== stepId)
-                      : [...prev.stats.completedDailySteps, stepId];
-                    return {
+            <Suspense
+              fallback={
+                <div className="panel" style={{ padding: 24, color: 'var(--muted)' }}>
+                  Đang tải module học tập...
+                </div>
+              }
+            >
+              {activeTab === 'dashboard' && (
+                <DashboardView
+                  cards={state.cards}
+                  stats={state.stats}
+                  dailyGoalMinutes={state.settings.dailyGoalMinutes}
+                  onNavigate={navigateTo}
+                  onToggleDailyStep={(stepId) => {
+                    setState((prev) => {
+                      const exists = prev.stats.completedDailySteps.includes(stepId);
+                      const nextSteps = exists
+                        ? prev.stats.completedDailySteps.filter((s) => s !== stepId)
+                        : [...prev.stats.completedDailySteps, stepId];
+                      return {
+                        ...prev,
+                        stats: { ...prev.stats, completedDailySteps: nextSteps },
+                      };
+                    });
+                  }}
+                />
+              )}
+
+              {activeTab === 'curriculum' && (
+                <CurriculumView
+                  completedUnitIds={state.stats.completedUnitIds}
+                  cefrLevel={state.stats.cefrLevel}
+                  onCompleteUnit={(unitId) => {
+                    setState((prev) => ({
                       ...prev,
-                      stats: { ...prev.stats, completedDailySteps: nextSteps },
-                    };
-                  });
-                }}
-              />
-            )}
+                      stats: {
+                        ...prev.stats,
+                        completedUnitIds: prev.stats.completedUnitIds.includes(unitId)
+                          ? prev.stats.completedUnitIds
+                          : [...prev.stats.completedUnitIds, unitId],
+                        dailyMinutesDone: prev.stats.dailyMinutesDone + 5,
+                        immersionMinutes: prev.stats.immersionMinutes + 5,
+                        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 5),
+                      },
+                    }));
+                    showToast('Đã ghi nhận hoàn thành Unit vào lộ trình CEFR!');
+                  }}
+                  onSavePlacementLevel={(cefr) => {
+                    setState((prev) => ({
+                      ...prev,
+                      stats: { ...prev.stats, cefrLevel: cefr },
+                    }));
+                    showToast(`Đã cập nhật trình độ CEFR của bạn → ${cefr}`);
+                  }}
+                  onShowToast={showToast}
+                />
+              )}
 
-            {activeTab === 'curriculum' && (
-              <CurriculumView
-                completedUnitIds={state.stats.completedUnitIds}
-                cefrLevel={state.stats.cefrLevel}
-                onCompleteUnit={(unitId) => {
-                  setState((prev) => ({
-                    ...prev,
-                    stats: {
-                      ...prev.stats,
-                      completedUnitIds: prev.stats.completedUnitIds.includes(unitId)
-                        ? prev.stats.completedUnitIds
-                        : [...prev.stats.completedUnitIds, unitId],
-                      dailyMinutesDone: prev.stats.dailyMinutesDone + 5,
-                      immersionMinutes: prev.stats.immersionMinutes + 5,
-                    },
-                  }));
-                  showToast('Đã ghi nhận hoàn thành Unit vào lộ trình CEFR!');
-                }}
-                onSavePlacementLevel={(cefr) => {
-                  setState((prev) => ({
-                    ...prev,
-                    stats: { ...prev.stats, cefrLevel: cefr },
-                  }));
-                  showToast(`Đã cập nhật trình độ CEFR của bạn → ${cefr}`);
-                }}
-                onShowToast={showToast}
-              />
-            )}
+              {activeTab === 'shadowing' && (
+                <ShadowingStudio
+                  onRecordScore={handleRecordPronunciation}
+                  onShowToast={showToast}
+                />
+              )}
 
-            {activeTab === 'shadowing' && (
-              <ShadowingStudio
-                onRecordScore={handleRecordPronunciation}
-                onShowToast={showToast}
-              />
-            )}
+              {activeTab === 'tutor' && (
+                <AITutorView
+                  aiConfig={state.settings.aiConfig}
+                  memoryLedger={state.memoryLedger}
+                  savedSessions={state.tutorSessions}
+                  initialTopicPrompt={tutorSeedPrompt}
+                  onSaveSession={(scenarioId, session) => {
+                    setState((prev) => ({
+                      ...prev,
+                      tutorSessions: {
+                        ...prev.tutorSessions,
+                        [scenarioId]: session,
+                      },
+                    }));
+                  }}
+                  onTutorOutcome={({ usedText, detectedMistakePattern }) => {
+                    const lowerText = usedText.toLowerCase();
+                    const now = Date.now();
+                    setState((prev) => {
+                      let nextLedger = prev.memoryLedger.map((item) => {
+                        if (detectedMistakePattern && item.mistakePattern === detectedMistakePattern) {
+                          return { ...item, lastPracticedAt: now, resolved: false };
+                        }
+                        const vocabHit =
+                          item.targetVocab.length > 0 &&
+                          lowerText.includes(item.targetVocab.toLowerCase());
+                        if (vocabHit && !item.resolved) {
+                          return { ...item, lastPracticedAt: now, resolved: true };
+                        }
+                        return item;
+                      });
 
-            {activeTab === 'tutor' && (
-              <AITutorView
-                aiConfig={state.settings.aiConfig}
-                memoryLedger={state.memoryLedger}
-                initialTopicPrompt={tutorSeedPrompt}
-                onSaveWordToFsrs={(word, contextSentence) =>
-                  handleAddCard({
-                    word,
-                    ipa: '',
-                    meaningVi: `Từ luyện trong AI Tutor (${word})`,
-                    clozeSentence: contextSentence.replace(
-                      new RegExp(`\\b${word}\\b`, 'i'),
-                      `{{${word}}}`
-                    ),
-                    deck: 'AI Tutor Mined',
-                  })
-                }
-                onRecordPracticeMinutes={addStudyMinutes}
-                onShowToast={showToast}
-              />
-            )}
+                      if (
+                        detectedMistakePattern &&
+                        !nextLedger.some((m) => m.mistakePattern === detectedMistakePattern)
+                      ) {
+                        nextLedger = [
+                          {
+                            id: `mem-${now}`,
+                            mistakePattern: detectedMistakePattern,
+                            targetVocab: usedText.slice(0, 28),
+                            userGoal: 'Khắc phục lỗi diễn đạt trong hội thoại AI',
+                            lastPracticedAt: now,
+                            resolved: false,
+                          },
+                          ...nextLedger,
+                        ];
+                      }
 
-            {activeTab === 'writing' && (
-              <WritingStudioView
-                onRecordWritingMinutes={addStudyMinutes}
-                onSavePhraseToFsrs={(word, meaningVi, sentence) =>
-                  handleAddCard({
-                    word,
-                    ipa: '',
-                    meaningVi,
-                    clozeSentence: sentence,
-                    deck: 'IELTS Writing Upgrades',
-                  })
-                }
-                onShowToast={showToast}
-              />
-            )}
+                      return {
+                        ...prev,
+                        memoryLedger: nextLedger,
+                        stats: {
+                          ...prev.stats,
+                          dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 1, now),
+                        },
+                      };
+                    });
+                  }}
+                  onSaveWordToFsrs={(word, contextSentence) =>
+                    handleAddCard({
+                      word,
+                      ipa: '',
+                      meaningVi: `Từ luyện trong AI Tutor (${word})`,
+                      clozeSentence: contextSentence.replace(
+                        new RegExp(`\\b${word}\\b`, 'i'),
+                        `{{${word}}}`
+                      ),
+                      deck: 'AI Tutor Mined',
+                    })
+                  }
+                  onRecordPracticeMinutes={addStudyMinutes}
+                  onShowToast={showToast}
+                />
+              )}
 
-            {activeTab === 'fsrs' && (
-              <FSRSDeckView
-                cards={state.cards}
-                desiredRetention={state.settings.desiredRetention}
-                onRateCard={handleRateCard}
-                onAddCard={(inp) => handleAddCard(inp)}
-                onBatchDelete={(ids) => {
-                  setState((prev) => ({
-                    ...prev,
-                    cards: prev.cards.filter((c) => !ids.includes(c.id)),
-                  }));
-                  showToast(`Đã xóa ${ids.length} thẻ`);
-                }}
-                onBatchMoveDeck={(ids, deck) => {
-                  setState((prev) => ({
-                    ...prev,
-                    cards: prev.cards.map((c) => (ids.includes(c.id) ? { ...c, deck } : c)),
-                  }));
-                  showToast(`Đã chuyển ${ids.length} thẻ vào "${deck}"`);
-                }}
-                onLaunchTutorWithWords={(words) => {
-                  setTutorSeedPrompt(`Let us practice using these target words naturally: ${words.join(', ')}.`);
-                  showToast(`Mở AI Tutor tập nói với: ${words.join(', ')}`);
-                  navigateTo('tutor');
-                }}
-                onShowToast={showToast}
-              />
-            )}
+              {activeTab === 'writing' && (
+                <WritingStudioView
+                  aiConfig={state.settings.aiConfig}
+                  writingDrafts={state.writingDrafts}
+                  onUpdateDraft={(promptId, text) => {
+                    setState((prev) => ({
+                      ...prev,
+                      writingDrafts: {
+                        ...prev.writingDrafts,
+                        [promptId]: text,
+                      },
+                    }));
+                  }}
+                  onRecordWritingMinutes={addStudyMinutes}
+                  onSavePhraseToFsrs={(word, meaningVi, sentence) =>
+                    handleAddCard({
+                      word,
+                      ipa: '',
+                      meaningVi,
+                      clozeSentence: sentence,
+                      deck: 'IELTS Writing Upgrades',
+                    })
+                  }
+                  onShowToast={showToast}
+                />
+              )}
 
-            {activeTab === 'reader' && (
-              <ImmersiveReader
-                wordFamiliarity={state.stats.wordFamiliarity}
-                onSetWordFamiliarity={(word, level) => {
-                  setState((prev) => ({
-                    ...prev,
-                    stats: {
-                      ...prev.stats,
-                      wordFamiliarity: { ...prev.stats.wordFamiliarity, [word]: level },
-                    },
-                  }));
-                  showToast(`Đã cập nhật mức thuộc "${word}" → Level ${level}`);
-                }}
-                onMineSentence={(payload) =>
-                  handleAddCard({
-                    word: payload.word,
-                    ipa: payload.ipa,
-                    meaningVi: payload.meaningVi,
-                    clozeSentence: payload.clozeSentence,
-                    translationVi: payload.translationVi,
-                    sourceTitle: payload.sourceTitle,
-                    deck: 'Mined from Reader',
-                  })
-                }
-                onDiscussWithTutor={(question) => {
-                  setTutorSeedPrompt(`Let's discuss this question from Engoo Reader: "${question}" — From my perspective, `);
-                  navigateTo('tutor');
-                  showToast('Đã chuyển câu hỏi thảo luận sang AI Tutor');
-                }}
-                onShowToast={showToast}
-              />
-            )}
+              {activeTab === 'fsrs' && (
+                <FSRSDeckView
+                  cards={state.cards}
+                  desiredRetention={state.settings.desiredRetention}
+                  openAddFormNonce={openAddFormNonce}
+                  onRateCard={handleRateCard}
+                  onAddCard={(inp) => handleAddCard(inp)}
+                  onBatchDelete={(ids) => {
+                    setState((prev) => ({
+                      ...prev,
+                      cards: prev.cards.filter((c) => !ids.includes(c.id)),
+                    }));
+                    showToast(`Đã xóa ${ids.length} thẻ`);
+                  }}
+                  onBatchMoveDeck={(ids, deck) => {
+                    setState((prev) => ({
+                      ...prev,
+                      cards: prev.cards.map((c) => (ids.includes(c.id) ? { ...c, deck } : c)),
+                    }));
+                    showToast(`Đã chuyển ${ids.length} thẻ vào "${deck}"`);
+                  }}
+                  onLaunchTutorWithWords={(words) => {
+                    setTutorSeedPrompt(`Let us practice using these target words naturally: ${words.join(', ')}.`);
+                    showToast(`Mở AI Tutor tập nói với: ${words.join(', ')}`);
+                    navigateTo('tutor');
+                  }}
+                  onShowToast={showToast}
+                />
+              )}
 
-            {activeTab === 'qwerty' && (
-              <QwertyDictation
-                bestWpm={state.stats.typingWpmBest}
-                soundEffectsEnabled={state.settings.soundEffectsEnabled}
-                onUpdateBestWpm={(wpm) =>
-                  setState((prev) => ({
-                    ...prev,
-                    stats: { ...prev.stats, typingWpmBest: wpm },
-                  }))
-                }
-                onShowToast={showToast}
-              />
-            )}
+              {activeTab === 'reader' && (
+                <ImmersiveReader
+                  wordFamiliarity={state.stats.wordFamiliarity}
+                  customArticles={state.customArticles}
+                  onAddCustomArticle={(article) => {
+                    setState((prev) => ({
+                      ...prev,
+                      customArticles: [article, ...prev.customArticles],
+                    }));
+                  }}
+                  onSetWordFamiliarity={(word, level) => {
+                    setState((prev) => ({
+                      ...prev,
+                      stats: {
+                        ...prev.stats,
+                        wordFamiliarity: { ...prev.stats.wordFamiliarity, [word]: level },
+                      },
+                    }));
+                    showToast(`Đã cập nhật mức thuộc "${word}" → Level ${level}`);
+                  }}
+                  onMineSentence={(payload) =>
+                    handleAddCard({
+                      word: payload.word,
+                      ipa: payload.ipa,
+                      meaningVi: payload.meaningVi,
+                      clozeSentence: payload.clozeSentence,
+                      translationVi: payload.translationVi,
+                      sourceTitle: payload.sourceTitle,
+                      deck: 'Mined from Reader',
+                    })
+                  }
+                  onDiscussWithTutor={(question) => {
+                    setTutorSeedPrompt(`Let's discuss this question from Engoo Reader: "${question}" — From my perspective, `);
+                    navigateTo('tutor');
+                    showToast('Đã chuyển câu hỏi thảo luận sang AI Tutor');
+                  }}
+                  onShowToast={showToast}
+                />
+              )}
 
-            {activeTab === 'settings' && (
-              <SettingsView
-                settings={state.settings}
-                cards={state.cards}
-                onUpdateSettings={handleUpdateSettings}
-                onShowToast={showToast}
-                onResetAll={() => {
-                  setState(createDefaultState());
-                  showToast('Đã khôi phục toàn bộ dữ liệu mẫu T-English v2.0');
-                }}
-              />
-            )}
+              {activeTab === 'qwerty' && (
+                <QwertyDictation
+                  bestWpm={state.stats.typingWpmBest}
+                  soundEffectsEnabled={state.settings.soundEffectsEnabled}
+                  onUpdateBestWpm={(wpm) =>
+                    setState((prev) => ({
+                      ...prev,
+                      stats: {
+                        ...prev.stats,
+                        typingWpmBest: wpm,
+                        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 1),
+                      },
+                    }))
+                  }
+                  onShowToast={showToast}
+                />
+              )}
+
+              {activeTab === 'settings' && (
+                <SettingsView
+                  settings={state.settings}
+                  cards={state.cards}
+                  fullState={state}
+                  onUpdateSettings={handleUpdateSettings}
+                  onImportBackup={(imported) => setState(imported)}
+                  onShowToast={showToast}
+                  onResetAll={() => {
+                    setState(createDefaultState());
+                    showToast('Đã khôi phục toàn bộ dữ liệu mẫu T-English v2.0');
+                  }}
+                />
+              )}
+            </Suspense>
           </div>
         </main>
 

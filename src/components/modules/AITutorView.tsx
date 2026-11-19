@@ -4,48 +4,54 @@ import {
   generateTutorReply,
   type AIConfig,
   type MemoryLedgerItem,
-  type TurnCorrection,
 } from '../../core/ai/tutorService';
+import type { SavedChatTurn, SavedTutorSession } from '../../core/storage/db';
 import { speakEnglish, startSpeechCapture, triggerHaptic } from '../../core/phonetics/speechIO';
 import { playSuccessSound } from '../../core/phonetics/soundEffects';
 import { IconCheck, IconMic, IconPlus, IconSend, IconVolume } from '../icons/Icons';
 
-interface ChatTurn {
-  id: string;
-  sender: 'ai' | 'user';
-  text: string;
-  textVi?: string;
-  correction?: TurnCorrection;
-  memoryTriggered?: string;
-}
-
 interface AITutorViewProps {
   aiConfig: AIConfig;
   memoryLedger: MemoryLedgerItem[];
+  savedSessions: Record<string, SavedTutorSession>;
   initialTopicPrompt?: string | null;
+  onSaveSession: (scenarioId: string, session: SavedTutorSession) => void;
+  onTutorOutcome: (payload: { usedText: string; detectedMistakePattern?: string }) => void;
   onSaveWordToFsrs: (word: string, contextSentence: string) => void;
   onRecordPracticeMinutes: (mins: number) => void;
   onShowToast: (msg: string) => void;
 }
 
+function defaultSessionFor(sc: RoleplayScenario): SavedTutorSession {
+  return {
+    turns: [
+      {
+        id: `init-${sc.id}`,
+        sender: 'ai',
+        text: sc.openingLine,
+        textVi: sc.openingLineVi,
+      },
+    ],
+    completedMissions: [],
+  };
+}
+
 export const AITutorView: React.FC<AITutorViewProps> = ({
   aiConfig,
   memoryLedger,
+  savedSessions,
   initialTopicPrompt,
+  onSaveSession,
+  onTutorOutcome,
   onSaveWordToFsrs,
   onRecordPracticeMinutes,
   onShowToast,
 }) => {
   const [scenario, setScenario] = useState<RoleplayScenario>(ROLEPLAY_SCENARIOS[0]);
-  const [turns, setTurns] = useState<ChatTurn[]>([
-    {
-      id: 'init-1',
-      sender: 'ai',
-      text: ROLEPLAY_SCENARIOS[0].openingLine,
-      textVi: ROLEPLAY_SCENARIOS[0].openingLineVi,
-    },
-  ]);
-  const [completedMissions, setCompletedMissions] = useState<string[]>([]);
+  const currentSession = savedSessions[scenario.id] ?? defaultSessionFor(scenario);
+  const turns = currentSession.turns;
+  const completedMissions = currentSession.completedMissions;
+
   const [draft, setDraft] = useState('');
   const [loading, setLoading] = useState(false);
   const [expandedExplainId, setExpandedExplainId] = useState<string | null>(null);
@@ -70,18 +76,15 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
 
   const handleSelectScenario = (sc: RoleplayScenario) => {
     setScenario(sc);
-    setCompletedMissions([]);
-    setTurns([
-      {
-        id: `init-${sc.id}`,
-        sender: 'ai',
-        text: sc.openingLine,
-        textVi: sc.openingLineVi,
-      },
-    ]);
     setExpandedExplainId(null);
     setTimerRunning(false);
     setIeltsSeconds(60);
+  };
+
+  const handleResetScenario = () => {
+    onSaveSession(scenario.id, defaultSessionFor(scenario));
+    setExpandedExplainId(null);
+    onShowToast(`Đã khởi tạo lại hội thoại "${scenario.title}"`);
   };
 
   const handleVoiceMic = () => {
@@ -111,7 +114,6 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
     setLoading(true);
     const userTurnId = `u-${Date.now()}`;
 
-    // Check 3-Star Missions against user utterance
     const lowerContent = content.toLowerCase();
     const newlyCompleted: string[] = [];
     scenario.missions.forEach((m) => {
@@ -122,11 +124,10 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
         newlyCompleted.push(m.id);
       }
     });
+    const updatedMissions = [...completedMissions, ...newlyCompleted];
     if (newlyCompleted.length > 0) {
-      const updated = [...completedMissions, ...newlyCompleted];
-      setCompletedMissions(updated);
       playSuccessSound();
-      if (updated.length === scenario.missions.length) {
+      if (updatedMissions.length === scenario.missions.length) {
         onShowToast('Tuyệt vời! Bạn đã đạt đủ 3/3 Nhiệm vụ của kịch bản này!');
       }
     }
@@ -135,26 +136,40 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
       scenarioTitle: scenario.title,
       scenarioPrompt: `${scenario.roleAi} talking to ${scenario.roleUser}`,
       userText: content,
+      history: turns.map((t) => ({ sender: t.sender, text: t.text })),
       memoryLedger,
       config: aiConfig,
     });
 
-    const userTurn: ChatTurn = {
+    if (reply.source === 'fallback' && reply.fallbackReason) {
+      onShowToast(`AI fallback (${reply.fallbackReason})`);
+    }
+
+    const userTurn: SavedChatTurn = {
       id: userTurnId,
       sender: 'user',
       text: content,
       correction: reply.correction,
     };
 
-    const aiTurn: ChatTurn = {
+    const aiTurn: SavedChatTurn = {
       id: `a-${Date.now() + 1}`,
       sender: 'ai',
       text: reply.aiText,
       textVi: reply.aiTextVi,
       memoryTriggered: reply.memoryTriggered,
+      source: reply.source,
+      fallbackReason: reply.fallbackReason,
     };
 
-    setTurns((prev) => [...prev, userTurn, aiTurn]);
+    onSaveSession(scenario.id, {
+      turns: [...turns, userTurn, aiTurn].slice(-30),
+      completedMissions: updatedMissions,
+    });
+    onTutorOutcome({
+      usedText: content,
+      detectedMistakePattern: reply.correction.detectedMistakePattern,
+    });
     setExpandedExplainId(userTurnId);
     setLoading(false);
     onRecordPracticeMinutes(3);
@@ -170,16 +185,15 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
 
   return (
     <div className="split-2">
-      {/* Left: Conversation Thread, 3-Star Mission Checklist & Live Corrections */}
       <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12, minHeight: 560 }}>
         <div className="ph" style={{ marginBottom: 0 }}>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <b>{scenario.title}</b>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-              AI: {scenario.roleAi} · Bạn: {scenario.roleUser}
+              AI: {scenario.roleAi} · Bạn: {scenario.roleUser} · {aiConfig.provider.toUpperCase()}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <button
               type="button"
               className={`gb sm ${handsFreeCall ? 'hl' : ''}`}
@@ -189,11 +203,13 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
               <IconMic size={12} />
               <span>{handsFreeCall ? 'Live Call: Bật' : 'Live Call'}</span>
             </button>
+            <button type="button" className="gb sm" onClick={handleResetScenario}>
+              Làm mới
+            </button>
             <span className="tag">{scenario.level}</span>
           </div>
         </div>
 
-        {/* Duolingo Max / Speak style 3-Star Mission Checklist */}
         <div
           style={{
             padding: '10px 12px',
@@ -205,7 +221,7 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
             gap: 6,
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 650, color: 'var(--cyan)' }}>
               3-Star Roleplay Missions ({completedMissions.length}/{scenario.missions.length})
             </span>
@@ -237,7 +253,6 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
           })}
         </div>
 
-        {/* IELTS Part 2 Cue Card & Prep/Speak Timer */}
         {scenario.ieltsPart2Cue && (
           <div
             style={{
@@ -247,7 +262,7 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
               background: 'var(--cyan-s)',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
               <b style={{ fontSize: 12.5 }}>IELTS Speaking Part 2 Cue Card</b>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span className="tag mono">
@@ -278,7 +293,6 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
           </div>
         )}
 
-        {/* Messages */}
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 4, maxHeight: 340 }}>
           {turns.map((t) => (
             <div key={t.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -293,15 +307,33 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 650, color: t.sender === 'ai' ? 'var(--cyan)' : 'var(--muted)' }}>
-                    {t.sender === 'ai' ? scenario.roleAi : 'Bạn'}
-                  </span>
-                  <button type="button" className="ib sm" onClick={() => speakEnglish(t.text)} title="Nghe lại">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 650, color: t.sender === 'ai' ? 'var(--cyan)' : 'var(--muted)' }}>
+                      {t.sender === 'ai' ? scenario.roleAi : 'Bạn'}
+                    </span>
+                    {t.source && (
+                      <span className="tag" style={{ fontSize: 9.5 }}>
+                        {t.source === 'live' ? 'Live AI' : 'Offline Tutor'}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className="ib sm"
+                    aria-label="Nghe lại lời thoại"
+                    onClick={() => speakEnglish(t.text)}
+                    title="Nghe lại"
+                  >
                     <IconVolume size={13} />
                   </button>
                 </div>
                 <div style={{ fontSize: 13 }}>{t.text}</div>
                 {t.textVi && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>{t.textVi}</div>}
+                {t.fallbackReason && (
+                  <div style={{ fontSize: 10.5, color: 'var(--amber)', marginTop: 4 }}>
+                    Ghi chú API: {t.fallbackReason} (đã chuyển sang Offline Linguistic Engine)
+                  </div>
+                )}
                 {t.memoryTriggered && (
                   <div style={{ marginTop: 6 }}>
                     <span className="tag" style={{ color: 'var(--indigo)', background: 'var(--indigo-s)' }}>
@@ -323,7 +355,7 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
                     gap: 6,
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, fontWeight: 650, color: 'var(--muted)' }}>
                       Phân tích &amp; Nâng cấp C1 · Điểm: <b className="ok">{t.correction.score}/100</b>
                     </span>
@@ -395,7 +427,6 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
           ))}
         </div>
 
-        {/* Suggested Expressions & Input */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--line)', paddingTop: 10 }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {scenario.suggestedExpressions.map((expr) => (
@@ -403,6 +434,13 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
                 key={expr}
                 type="button"
                 className="gb sm"
+                style={{
+                  whiteSpace: 'normal',
+                  textAlign: 'left',
+                  height: 'auto',
+                  padding: '5px 10px',
+                  maxWidth: '100%',
+                }}
                 onClick={() => setDraft((prev) => (prev ? `${prev} ${expr}` : expr))}
               >
                 + {expr}
@@ -420,13 +458,17 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
                 background: listening ? 'var(--rose-s)' : 'var(--raised)',
               }}
               onClick={handleVoiceMic}
+              aria-label="Thu âm bằng Micro"
               title="Nói bằng Micro"
             >
               <IconMic size={15} />
             </button>
             <input
+              id="ai-tutor-input"
+              name="ai-tutor-input"
+              aria-label="Nhập câu trả lời tiếng Anh cho AI Tutor"
               className="input-field"
-              style={{ flex: 1, height: 34 }}
+              style={{ flex: 1, height: 34, minWidth: 0 }}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
@@ -442,7 +484,6 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
         </div>
       </div>
 
-      {/* Right: 8 Scenarios & AI Memory Ledger */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="panel">
           <div className="ph">
@@ -486,7 +527,7 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
             <div>
               <b>AI Long-Term Memory Ledger</b>
               <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                Gia sư AI ghi nhớ mục tiêu và lỗi sai cũ giữa các buổi học
+                Tự động ghi nhận lỗi sai &amp; đánh dấu hoàn thành khi bạn dùng đúng từ
               </div>
             </div>
           </div>

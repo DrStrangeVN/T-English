@@ -172,7 +172,7 @@ export const WORD_ROOTS_DATA: WordRootNode[] = [
     coreMeaningEn: 'to turn or change direction',
     mnemonicVi: 'Nhớ "Reverse" (đảo ngược) và "Convert" (chuyển đổi).',
     derivatives: [
-      { word: 'ubiquitous / versatile', ipa: '/ˈvɜːr.sə.təl/', pos: 'adj', suffix: '-ile', meaningVi: 'đa năng, xoay xở linh hoạt nhiều vai trò', example: 'SwiftUI and React form a versatile cross-device stack.', cefr: 'C1' },
+      { word: 'versatile', ipa: '/ˈvɜːr.sə.təl/', pos: 'adj', suffix: '-ile', meaningVi: 'đa năng, xoay xở linh hoạt nhiều vai trò', example: 'SwiftUI and React form a versatile cross-device stack.', cefr: 'C1' },
       { word: 'converge', ipa: '/kənˈvɜːrdʒ/', pos: 'verb', prefix: 'con- (cùng xoay về)', meaningVi: 'hội tụ về một điểm chung', example: 'CRDT replicas eventually converge to the identical state.', cefr: 'C1' },
       { word: 'diverge', ipa: '/daɪˈvɜːrdʒ/', pos: 'verb', prefix: 'di- (tách đôi)', meaningVi: 'phân kỳ, rẽ nhánh khác biệt', example: 'Spoken idioms often diverge sharply from textbook grammar.', cefr: 'C1' },
       { word: 'inadvertent', ipa: '/ˌɪn.ədˈvɜːr.tənt/', pos: 'adj', prefix: 'in- (không) + ad- (hướng tới)', meaningVi: 'vô tình, sơ ý không chủ đích', example: 'An inadvertent typo triggered a word reset in typing practice.', cefr: 'C2' },
