@@ -15,6 +15,14 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_BUNDLE/Contents/MacOS"
 mkdir -p "$APP_BUNDLE/Contents/Resources/web"
 
+if [ ! -f "$ROOT_DIR/macos-host/AppIcon.icns" ] && command -v python3 >/dev/null 2>&1; then
+  python3 "$ROOT_DIR/macos-host/generate-icons.py"
+fi
+
+if [ -f "$ROOT_DIR/macos-host/AppIcon.icns" ]; then
+  cp "$ROOT_DIR/macos-host/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+fi
+
 cp "$ROOT_DIR/macos-host/Info.plist" "$APP_BUNDLE/Contents/Info.plist"
 cp -R "$ROOT_DIR/dist/"* "$APP_BUNDLE/Contents/Resources/web/"
 
@@ -32,13 +40,26 @@ codesign --force --deep --sign - "$APP_BUNDLE" >/dev/null 2>&1 || true
 
 echo "Built macOS app bundle at: $APP_BUNDLE"
 
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -f "$APP_BUNDLE" >/dev/null 2>&1 || true
+fi
+
 if [ -w "/Applications" ]; then
   rm -rf "/Applications/$APP_NAME.app"
   cp -R "$APP_BUNDLE" "/Applications/$APP_NAME.app"
+  touch "/Applications/$APP_NAME.app"
+  if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -f "/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
+  fi
   echo "Installed to: /Applications/$APP_NAME.app"
 else
   mkdir -p "$HOME/Applications"
   rm -rf "$HOME/Applications/$APP_NAME.app"
   cp -R "$APP_BUNDLE" "$HOME/Applications/$APP_NAME.app"
+  touch "$HOME/Applications/$APP_NAME.app"
+  if [ -x "$LSREGISTER" ]; then
+    "$LSREGISTER" -f "$HOME/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
+  fi
   echo "Installed to: $HOME/Applications/$APP_NAME.app"
 fi
