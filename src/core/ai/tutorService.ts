@@ -1,6 +1,8 @@
+import { hasNativeMacBridge, nativeHttpRequest } from '../phonetics/speechIO';
+
 /**
  * Multi-Provider AI Tutor & Linguistic Engine
- * Supports live OpenAI / Gemini / Local Ollama endpoints with 15s timeout,
+ * Supports live OpenAI / Gemini / Local Ollama endpoints (with native macOS HTTP bridge for zero-CORS Ollama),
  * multi-turn conversation history, transparent fallback reporting, and Memory Ledger.
  */
 
@@ -333,22 +335,42 @@ export async function generateTutorReply(params: {
             })),
             { role: 'user', content: userText },
           ];
-          const res = await fetch(`${config.ollamaUrl.replace(/\/$/, '')}/api/chat`, {
-            method: 'POST',
-            signal: controller.signal,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              model: config.model || 'llama3.2',
-              stream: false,
-              format: 'json',
-              messages,
-            }),
+          const ollamaPayload = JSON.stringify({
+            model: config.model || 'llama3.2',
+            stream: false,
+            format: 'json',
+            messages,
           });
-          if (!res.ok) {
-            fallbackReason = `Ollama HTTP ${res.status}`;
+          const ollamaEndpoint = `${config.ollamaUrl.replace(/\/$/, '')}/api/chat`;
+          let rawData: { message?: { content?: string } } | null = null;
+          if (hasNativeMacBridge()) {
+            const nr = await nativeHttpRequest({
+              url: ollamaEndpoint,
+              method: 'POST',
+              body: ollamaPayload,
+              timeoutMs: 18_000,
+              eventChannel: 'http',
+            });
+            if (!nr.ok) {
+              fallbackReason = `Ollama HTTP ${nr.status || 'Network'}`;
+            } else {
+              rawData = JSON.parse(nr.text || '{}');
+            }
           } else {
-            const data = await res.json();
-            const parsed = JSON.parse(data.message?.content ?? '{}');
+            const res = await fetch(ollamaEndpoint, {
+              method: 'POST',
+              signal: controller.signal,
+              headers: { 'Content-Type': 'application/json' },
+              body: ollamaPayload,
+            });
+            if (!res.ok) {
+              fallbackReason = `Ollama HTTP ${res.status}`;
+            } else {
+              rawData = await res.json();
+            }
+          }
+          if (rawData) {
+            const parsed = JSON.parse(rawData.message?.content ?? '{}');
             if (parsed.aiText) {
               return {
                 aiText: parsed.aiText,

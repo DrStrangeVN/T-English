@@ -37,6 +37,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [spokenText, setSpokenText] = useState('');
   const [micNote, setMicNote] = useState('');
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const [inspectedPhoneme, setInspectedPhoneme] = useState('θ');
   const [result, setResult] = useState<SentencePronunciationResult>(() =>
     evaluatePronunciation(
@@ -52,6 +53,8 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
   const [quizFeedback, setQuizFeedback] = useState<string | null>(null);
 
   const recSessionRef = useRef<SpeechRecognitionSession | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const pitchSamplesRef = useRef<number[]>([]);
@@ -118,6 +121,14 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
   const stopRecordingAndScore = (finalTranscript: string) => {
     recSessionRef.current?.stop();
     recSessionRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        // ignore
+      }
+    }
+    mediaRecorderRef.current = null;
     if (pitchTimerRef.current) {
       window.clearInterval(pitchTimerRef.current);
       pitchTimerRef.current = null;
@@ -172,6 +183,29 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
       if (navigator.mediaDevices?.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         streamRef.current = stream;
+        if (typeof MediaRecorder !== 'undefined') {
+          try {
+            recordedChunksRef.current = [];
+            const mr = new MediaRecorder(stream);
+            mr.ondataavailable = (ev) => {
+              if (ev.data && ev.data.size > 0) recordedChunksRef.current.push(ev.data);
+            };
+            mr.onstop = () => {
+              if (recordedChunksRef.current.length > 0 && typeof URL !== 'undefined') {
+                const blob = new Blob(recordedChunksRef.current, { type: mr.mimeType || 'audio/webm' });
+                const nextUrl = URL.createObjectURL(blob);
+                setRecordedAudioUrl((prevUrl) => {
+                  if (prevUrl) URL.revokeObjectURL(prevUrl);
+                  return nextUrl;
+                });
+              }
+            };
+            mr.start();
+            mediaRecorderRef.current = mr;
+          } catch {
+            // Optional self-recording fallback
+          }
+        }
         const ctx = new AudioContext();
         audioCtxRef.current = ctx;
         const src = ctx.createMediaStreamSource(stream);
@@ -271,7 +305,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div className="seg">
           <button type="button" className={studioTab === 'shadowing' ? 'on' : ''} onClick={() => setStudioTab('shadowing')}>
-            Shadowing &amp; Pitch F0 (8 bài)
+            Shadowing &amp; Voice Mirror ({SHADOWING_TRACKS.length} bài)
           </button>
           <button
             type="button"
@@ -281,25 +315,27 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
               setInspectedPhoneme(contrast.phonemeA);
             }}
           >
-            Minimal Pairs Drill (12 cặp âm)
+            Minimal Pairs &amp; Ending Sounds ({MINIMAL_PAIRS_DATA.length} cặp)
           </button>
         </div>
       </div>
 
       {studioTab === 'shadowing' ? (
         <>
-          <div className="filters" style={{ marginBottom: 0 }}>
-            {SHADOWING_TRACKS.map((t, idx) => (
-              <button
-                key={t.id}
-                type="button"
-                className={`fp ${idx === trackIdx ? 'on' : ''}`}
-                onClick={() => selectTrack(idx)}
-              >
-                <span>{t.source}</span>
-                <span className="tag">{t.cefr}</span>
-              </button>
-            ))}
+          <div className="compact-picker">
+            <div className="compact-picker-scroll">
+              {SHADOWING_TRACKS.map((t, idx) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`fp ${idx === trackIdx ? 'on' : ''}`}
+                  onClick={() => selectTrack(idx)}
+                >
+                  <span>{t.source}</span>
+                  <span className="tag">{t.cefr}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="split-2">
@@ -362,6 +398,39 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                   <IconRepeat size={14} />
                   <span>AB-Loop {looping ? 'Bật' : 'Tắt'}</span>
                 </button>
+                {recordedAudioUrl && (
+                  <>
+                    <button
+                      type="button"
+                      className="gb sm hl"
+                      onClick={() => {
+                        const a = new Audio(recordedAudioUrl);
+                        void a.play().catch(() => onShowToast('Không thể phát đoạn ghi âm vừa thu'));
+                      }}
+                    >
+                      <IconVolume size={13} />
+                      <span>Nghe lại giọng bạn</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="gb sm"
+                      onClick={() => {
+                        speakEnglish(customText, {
+                          accent: track.accent,
+                          rate,
+                          onEnd: () => {
+                            window.setTimeout(() => {
+                              const a = new Audio(recordedAudioUrl);
+                              void a.play().catch(() => undefined);
+                            }, 350);
+                          },
+                        });
+                      }}
+                    >
+                      <span>So sánh A/B (Mẫu → Bạn)</span>
+                    </button>
+                  </>
+                )}
               </div>
 
               <div
@@ -464,7 +533,7 @@ export const ShadowingStudio: React.FC<ShadowingStudioProps> = ({
                     border: '1px solid var(--line)',
                     padding: '10px 12px',
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
                     gap: 8,
                     marginBottom: 12,
                   }}

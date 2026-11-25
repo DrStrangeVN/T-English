@@ -80,6 +80,15 @@
 
 @end
 
+// Non-activating Floating Liquid Glass HUD Panel for macOS Desktop Vocabulary Notifications
+@interface VocabHudPanel : NSPanel
+@end
+
+@implementation VocabHudPanel
+- (BOOL)canBecomeKeyWindow { return NO; }
+- (BOOL)canBecomeMainWindow { return NO; }
+@end
+
 @interface TEnglishAppDelegate : NSObject <NSApplicationDelegate, WKScriptMessageHandler, WKUIDelegate>
 @property (nonatomic, strong) NSWindow *window;
 @property (nonatomic, strong) NSVisualEffectView *vibrancy;
@@ -88,6 +97,10 @@
 @property (nonatomic, strong) NSPopover *popover;
 @property (nonatomic, strong) WKWebView *popoverWebView;
 @property (nonatomic, strong) BundleSchemeHandler *schemeHandler;
+@property (nonatomic, strong) NSTask *localVieneuTask;
+@property (nonatomic, strong) VocabHudPanel *vocabHudPanel;
+@property (nonatomic, strong) NSTimer *vocabHudTimer;
+@property (nonatomic, copy) NSString *activeHudCardId;
 @property (nonatomic, assign) BOOL lightMode;
 @property (nonatomic, copy) NSString *glassMode;
 @property (nonatomic, assign) BOOL userReduceTransparency;
@@ -149,6 +162,18 @@
     return config;
 }
 
+- (void)dispatchEventName:(NSString *)eventName payload:(NSDictionary *)payload toWebView:(WKWebView *)targetWebView {
+    if (!targetWebView) return;
+    NSError *err = nil;
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&err];
+    if (!jsonData || err) return;
+    NSString *jsonStr = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    NSString *script = [NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('%@', { detail: %@ }));", eventName, jsonStr];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [targetWebView evaluateJavaScript:script completionHandler:nil];
+    });
+}
+
 - (void)applyVibrancyAndAppearance {
     BOOL sysReduce = [NSWorkspace sharedWorkspace].accessibilityDisplayShouldReduceTransparency;
     BOOL effectiveReduce = sysReduce || self.userReduceTransparency;
@@ -175,7 +200,9 @@
         effectiveReduce ? @"true" : @"false",
         self.lightMode ? @"true" : @"false"];
     [self.webView evaluateJavaScript:js completionHandler:nil];
-    [self.popoverWebView evaluateJavaScript:js completionHandler:nil];
+    if (self.popoverWebView) {
+        [self.popoverWebView evaluateJavaScript:js completionHandler:nil];
+    }
 }
 
 - (void)accessibilityDisplayOptionsDidChange:(NSNotification *)note {
@@ -212,54 +239,56 @@
     }];
 }
 
-- (void)dispatchVieneuResponse:(NSDictionary *)payload toWebView:(WKWebView *)targetWebView {
-    if (!targetWebView) return;
-    NSError *err = nil;
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&err];
-    if (!jsonData || err) return;
-    NSString *jsonStr = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-    NSString *script = [NSString stringWithFormat:@"window.dispatchEvent(new CustomEvent('tenglish-vieneu-response', { detail: %@ }));", jsonStr];
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [targetWebView evaluateJavaScript:script completionHandler:nil];
-    });
-}
-
-- (void)handleVieneuRequest:(NSDictionary *)dict fromWebView:(WKWebView *)sourceWebView {
+// Universal native HTTP proxy (eliminates WKWebView CORS / PNA issues for VieNeu 8765/8766 & Ollama 11434)
+- (void)handleNativeHttpRequest:(NSDictionary *)dict eventName:(NSString *)eventName fromWebView:(WKWebView *)sourceWebView {
     NSString *requestId = [dict[@"requestId"] isKindOfClass:[NSString class]] ? dict[@"requestId"] : @"";
     NSString *urlString = [dict[@"url"] isKindOfClass:[NSString class]] ? dict[@"url"] : @"";
     NSString *method = [dict[@"method"] isKindOfClass:[NSString class]] ? dict[@"method"] : @"GET";
     NSString *token = [dict[@"token"] isKindOfClass:[NSString class]] ? dict[@"token"] : @"";
     NSString *bodyStr = [dict[@"body"] isKindOfClass:[NSString class]] ? dict[@"body"] : nil;
+    NSDictionary *extraHeaders = [dict[@"headers"] isKindOfClass:[NSDictionary class]] ? dict[@"headers"] : nil;
+    NSNumber *timeoutMsNum = [dict[@"timeoutMs"] isKindOfClass:[NSNumber class]] ? dict[@"timeoutMs"] : nil;
+    NSTimeInterval timeoutSec = timeoutMsNum ? MAX(3.0, MIN(60.0, [timeoutMsNum doubleValue] / 1000.0)) : 25.0;
 
     NSURL *url = [NSURL URLWithString:urlString];
     NSString *scheme = url.scheme.lowercaseString;
     if (!url || (![scheme isEqualToString:@"http"] && ![scheme isEqualToString:@"https"])) {
-        [self dispatchVieneuResponse:@{
+        [self dispatchEventName:eventName payload:@{
             @"requestId": requestId,
             @"ok": @NO,
             @"status": @0,
-            @"error": @"Invalid TTS URL scheme"
+            @"error": @"Invalid HTTP URL scheme"
         } toWebView:sourceWebView];
         return;
     }
 
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url
                                                        cachePolicy:NSURLRequestReloadIgnoringLocalCacheData
-                                                   timeoutInterval:15.0];
+                                                   timeoutInterval:timeoutSec];
     req.HTTPMethod = method.uppercaseString;
     if (token.length > 0) {
         [req setValue:token forHTTPHeaderField:@"X-VieNeu-Studio-Token"];
         [req setValue:[NSString stringWithFormat:@"Bearer %@", token] forHTTPHeaderField:@"Authorization"];
     }
-    if (bodyStr && [req.HTTPMethod isEqualToString:@"POST"]) {
-        [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    if (extraHeaders) {
+        for (id key in extraHeaders) {
+            id val = extraHeaders[key];
+            if ([key isKindOfClass:[NSString class]] && [val isKindOfClass:[NSString class]]) {
+                [req setValue:(NSString *)val forHTTPHeaderField:(NSString *)key];
+            }
+        }
+    }
+    if (bodyStr && ([req.HTTPMethod isEqualToString:@"POST"] || [req.HTTPMethod isEqualToString:@"PUT"])) {
+        if (![req valueForHTTPHeaderField:@"Content-Type"]) {
+            [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        }
         req.HTTPBody = [bodyStr dataUsingEncoding:NSUTF8StringEncoding];
     }
 
     NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:req
         completionHandler:^(NSData * _Nullable data, NSURLResponse * _Nullable response, NSError * _Nullable error) {
             if (error || !response) {
-                [self dispatchVieneuResponse:@{
+                [self dispatchEventName:eventName payload:@{
                     @"requestId": requestId,
                     @"ok": @NO,
                     @"status": @0,
@@ -272,19 +301,293 @@
             BOOL ok = (status >= 200 && status < 300);
             NSString *contentType = httpResp.MIMEType ?: @"application/octet-stream";
             NSString *sampleRateHeader = httpResp.allHeaderFields[@"X-Sample-Rate"] ?: httpResp.allHeaderFields[@"x-sample-rate"];
-            NSInteger sampleRate = sampleRateHeader ? [sampleRateHeader integerValue] : 24000;
+            NSInteger sampleRate = sampleRateHeader ? [sampleRateHeader integerValue] : 48000;
             NSString *b64 = data ? [data base64EncodedStringWithOptions:0] : @"";
 
-            [self dispatchVieneuResponse:@{
+            [self dispatchEventName:eventName payload:@{
                 @"requestId": requestId,
                 @"ok": @(ok),
                 @"status": @(status),
                 @"contentType": contentType,
-                @"sampleRate": @(sampleRate > 0 ? sampleRate : 24000),
+                @"sampleRate": @(sampleRate > 0 ? sampleRate : 48000),
                 @"bodyBase64": b64
             } toWebView:sourceWebView];
         }];
     [task resume];
+}
+
+// 1-Click Local Direct VieNeu-TTS v3 Turbo Engine Launcher (port 8766, 48kHz ONNX int8, 108 voices)
+- (void)handleStartLocalVieneu:(NSDictionary *)dict fromWebView:(WKWebView *)sourceWebView {
+    NSString *requestId = [dict[@"requestId"] isKindOfClass:[NSString class]] ? dict[@"requestId"] : @"";
+    NSNumber *portNum = [dict[@"port"] isKindOfClass:[NSNumber class]] ? dict[@"port"] : @(8766);
+    NSInteger port = [portNum integerValue] > 1024 ? [portNum integerValue] : 8766;
+
+    if (self.localVieneuTask && self.localVieneuTask.isRunning) {
+        [self dispatchEventName:@"tenglish-vieneu-daemon" payload:@{
+            @"requestId": requestId,
+            @"ok": @YES,
+            @"running": @YES,
+            @"port": @(port),
+            @"message": @"VieNeu Direct Engine đã đang chạy sẵn trên máy."
+        } toWebView:sourceWebView];
+        return;
+    }
+
+    NSString *homeDir = NSHomeDirectory();
+    NSString *runtimeDir = [homeDir stringByAppendingPathComponent:@"Developer/chua-vieneu-runtime"];
+    NSString *pythonPath = [runtimeDir stringByAppendingPathComponent:@".venv/bin/python"];
+    NSString *repoDir = [runtimeDir stringByAppendingPathComponent:@"VieNeu-TTS"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+
+    if (![fm isExecutableFileAtPath:pythonPath] || ![fm fileExistsAtPath:repoDir]) {
+        [self dispatchEventName:@"tenglish-vieneu-daemon" payload:@{
+            @"requestId": requestId,
+            @"ok": @NO,
+            @"running": @NO,
+            @"message": @"Không tìm thấy runtime VieNeu tại ~/Developer/chua-vieneu-runtime."
+        } toWebView:sourceWebView];
+        return;
+    }
+
+    @try {
+        NSTask *task = [[NSTask alloc] init];
+        task.executableURL = [NSURL fileURLWithPath:pythonPath];
+        task.currentDirectoryURL = [NSURL fileURLWithPath:repoDir];
+        task.arguments = @[
+            @"-m", @"uvicorn", @"apps.openai_speech:app",
+            @"--host", @"127.0.0.1",
+            @"--port", [NSString stringWithFormat:@"%ld", (long)port],
+            @"--workers", @"1",
+            @"--no-access-log"
+        ];
+
+        NSMutableDictionary *env = [NSMutableDictionary dictionaryWithDictionary:[NSProcessInfo processInfo].environment];
+        NSString *srcDir = [repoDir stringByAppendingPathComponent:@"src"];
+        NSString *onnxDir = [runtimeDir stringByAppendingPathComponent:@"models/onnx_int8"];
+        env[@"PYTHONPATH"] = [NSString stringWithFormat:@"%@:%@", repoDir, srcDir];
+        env[@"VIENEU_BACKEND"] = @"onnx";
+        env[@"VIENEU_DEVICE"] = @"cpu";
+        env[@"VIENEU_PRECISION"] = @"int8";
+        if ([fm fileExistsAtPath:onnxDir]) {
+            env[@"VIENEU_ONNX_DIR"] = onnxDir;
+        }
+        env[@"VIENEU_MAX_STREAMS"] = @"2";
+        env[@"HF_HUB_OFFLINE"] = @"1";
+        env[@"HF_HOME"] = [homeDir stringByAppendingPathComponent:@".cache/huggingface"];
+        env[@"VIENEU_HOME"] = [homeDir stringByAppendingPathComponent:@".vieneu"];
+        task.environment = env;
+        task.standardOutput = [NSFileHandle fileHandleWithNullDevice];
+        task.standardError = [NSFileHandle fileHandleWithNullDevice];
+
+        NSError *launchErr = nil;
+        BOOL started = [task launchAndReturnError:&launchErr];
+        if (!started || launchErr) {
+            [self dispatchEventName:@"tenglish-vieneu-daemon" payload:@{
+                @"requestId": requestId,
+                @"ok": @NO,
+                @"running": @NO,
+                @"message": launchErr ? launchErr.localizedDescription : @"Không thể khởi chạy tiến trình VieNeu."
+            } toWebView:sourceWebView];
+            return;
+        }
+        self.localVieneuTask = task;
+
+        [self dispatchEventName:@"tenglish-vieneu-daemon" payload:@{
+            @"requestId": requestId,
+            @"ok": @YES,
+            @"running": @YES,
+            @"port": @(port),
+            @"message": [NSString stringWithFormat:@"Đang khởi chạy VieNeu Direct Engine (ONNX 48kHz) tại cổng %ld (~3 giây)...", (long)port]
+        } toWebView:sourceWebView];
+    } @catch (NSException *ex) {
+        [self dispatchEventName:@"tenglish-vieneu-daemon" payload:@{
+            @"requestId": requestId,
+            @"ok": @NO,
+            @"running": @NO,
+            @"message": ex.reason ?: @"Lỗi ngoại lệ khi khởi chạy VieNeu Direct Engine"
+        } toWebView:sourceWebView];
+    }
+}
+
+- (void)handleStopLocalVieneu:(NSDictionary *)dict fromWebView:(WKWebView *)sourceWebView {
+    NSString *requestId = [dict[@"requestId"] isKindOfClass:[NSString class]] ? dict[@"requestId"] : @"";
+    if (self.localVieneuTask && self.localVieneuTask.isRunning) {
+        [self.localVieneuTask terminate];
+    }
+    self.localVieneuTask = nil;
+    [self dispatchEventName:@"tenglish-vieneu-daemon" payload:@{
+        @"requestId": requestId,
+        @"ok": @YES,
+        @"running": @NO,
+        @"message": @"Đã tắt tiến trình VieNeu Direct Engine cục bộ."
+    } toWebView:sourceWebView];
+}
+
+// Native macOS Floating Liquid Glass Vocabulary Notification HUD
+- (void)dismissVocabHud {
+    [self.vocabHudTimer invalidate];
+    self.vocabHudTimer = nil;
+    if (self.vocabHudPanel) {
+        [self.vocabHudPanel orderOut:nil];
+    }
+}
+
+- (void)hudSpeakClicked:(id)sender {
+    if (!self.activeHudCardId) return;
+    [self dispatchEventName:@"tenglish-vocab-hud-action"
+                    payload:@{@"type": @"speak", @"cardId": self.activeHudCardId}
+                  toWebView:self.webView];
+}
+
+- (void)hudRememberedClicked:(id)sender {
+    NSString *cid = self.activeHudCardId;
+    [self dismissVocabHud];
+    if (!cid) return;
+    [self dispatchEventName:@"tenglish-vocab-hud-action"
+                    payload:@{@"type": @"rate", @"cardId": cid, @"rating": @(3)}
+                  toWebView:self.webView];
+}
+
+- (void)hudAgainClicked:(id)sender {
+    NSString *cid = self.activeHudCardId;
+    [self dismissVocabHud];
+    if (!cid) return;
+    [self dispatchEventName:@"tenglish-vocab-hud-action"
+                    payload:@{@"type": @"rate", @"cardId": cid, @"rating": @(1)}
+                  toWebView:self.webView];
+}
+
+- (void)hudOpenAppClicked:(id)sender {
+    [self dismissVocabHud];
+    [self.window makeKeyAndOrderFront:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+    [self dispatchEventName:@"tenglish-vocab-hud-action"
+                    payload:@{@"type": @"open", @"cardId": self.activeHudCardId ?: @""}
+                  toWebView:self.webView];
+}
+
+- (void)hudCloseClicked:(id)sender {
+    NSString *cid = self.activeHudCardId;
+    [self dismissVocabHud];
+    if (!cid) return;
+    [self dispatchEventName:@"tenglish-vocab-hud-action"
+                    payload:@{@"type": @"dismiss", @"cardId": cid}
+                  toWebView:self.webView];
+}
+
+- (void)showNativeVocabHud:(NSDictionary *)dict {
+    NSString *cardId = [dict[@"cardId"] isKindOfClass:[NSString class]] ? dict[@"cardId"] : @"";
+    NSString *word = [dict[@"word"] isKindOfClass:[NSString class]] ? dict[@"word"] : @"Vocabulary";
+    NSString *ipa = [dict[@"ipa"] isKindOfClass:[NSString class]] ? dict[@"ipa"] : @"";
+    NSString *meaningVi = [dict[@"meaningVi"] isKindOfClass:[NSString class]] ? dict[@"meaningVi"] : @"";
+    NSString *example = [dict[@"example"] isKindOfClass:[NSString class]] ? dict[@"example"] : @"";
+    NSString *cefr = [dict[@"cefr"] isKindOfClass:[NSString class]] ? dict[@"cefr"] : @"B2";
+
+    self.activeHudCardId = cardId;
+    [self dismissVocabHud];
+
+    NSScreen *screen = [NSScreen mainScreen];
+    NSRect visible = screen ? screen.visibleFrame : NSMakeRect(0, 0, 1440, 900);
+    CGFloat w = 368.0;
+    CGFloat h = 176.0;
+    NSRect frame = NSMakeRect(NSMaxX(visible) - w - 18.0, NSMaxY(visible) - h - 18.0, w, h);
+
+    VocabHudPanel *panel = [[VocabHudPanel alloc] initWithContentRect:frame
+                                                            styleMask:(NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel)
+                                                              backing:NSBackingStoreBuffered
+                                                                defer:NO];
+    panel.level = NSFloatingWindowLevel;
+    panel.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces | NSWindowCollectionBehaviorFullScreenAuxiliary;
+    panel.opaque = NO;
+    panel.backgroundColor = [NSColor clearColor];
+    panel.hasShadow = YES;
+    panel.appearance = [NSAppearance appearanceNamed:(self.lightMode ? NSAppearanceNameAqua : NSAppearanceNameDarkAqua)];
+
+    NSVisualEffectView *bg = [[NSVisualEffectView alloc] initWithFrame:NSMakeRect(0, 0, w, h)];
+    bg.material = self.lightMode ? NSVisualEffectMaterialPopover : NSVisualEffectMaterialHUDWindow;
+    bg.blendingMode = NSVisualEffectBlendingModeBehindWindow;
+    bg.state = NSVisualEffectStateActive;
+    bg.wantsLayer = YES;
+    bg.layer.cornerRadius = 18.0;
+    bg.layer.masksToBounds = YES;
+    bg.layer.borderWidth = 1.0;
+    bg.layer.borderColor = self.lightMode
+        ? [NSColor colorWithWhite:0.0 alpha:0.12].CGColor
+        : [NSColor colorWithWhite:1.0 alpha:0.18].CGColor;
+
+    // Header badge
+    NSTextField *badge = [NSTextField labelWithString:[NSString stringWithFormat:@"T-English · Học Từ Vựng · %@", cefr]];
+    badge.frame = NSMakeRect(16, h - 28, w - 54, 16);
+    badge.font = [NSFont systemFontOfSize:11 weight:NSFontWeightSemibold];
+    badge.textColor = [NSColor colorWithSRGBRed:0.22 green:0.74 blue:0.97 alpha:1.0];
+    [bg addSubview:badge];
+
+    NSButton *closeBtn = [NSButton buttonWithTitle:@"✕" target:self action:@selector(hudCloseClicked:)];
+    closeBtn.frame = NSMakeRect(w - 34, h - 32, 24, 22);
+    closeBtn.bezelStyle = NSBezelStyleInline;
+    closeBtn.bordered = NO;
+    [bg addSubview:closeBtn];
+
+    // Word + IPA
+    NSTextField *wordField = [NSTextField labelWithString:word];
+    wordField.frame = NSMakeRect(16, h - 58, w - 32, 26);
+    wordField.font = [NSFont systemFontOfSize:20 weight:NSFontWeightBold];
+    wordField.lineBreakMode = NSLineBreakByTruncatingTail;
+    [bg addSubview:wordField];
+
+    NSTextField *ipaField = [NSTextField labelWithString:ipa];
+    ipaField.frame = NSMakeRect(16, h - 76, w - 32, 16);
+    ipaField.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightMedium];
+    ipaField.textColor = [NSColor colorWithSRGBRed:0.22 green:0.74 blue:0.97 alpha:1.0];
+    [bg addSubview:ipaField];
+
+    // Meaning VI
+    NSTextField *meaningField = [NSTextField labelWithString:meaningVi];
+    meaningField.frame = NSMakeRect(16, h - 102, w - 32, 22);
+    meaningField.font = [NSFont systemFontOfSize:13 weight:NSFontWeightSemibold];
+    meaningField.lineBreakMode = NSLineBreakByTruncatingTail;
+    [bg addSubview:meaningField];
+
+    // Example
+    NSTextField *exField = [NSTextField wrappingLabelWithString:example];
+    exField.frame = NSMakeRect(16, 46, w - 32, 28);
+    exField.font = [NSFont systemFontOfSize:11.5 weight:NSFontWeightRegular];
+    exField.textColor = [NSColor secondaryLabelColor];
+    exField.maximumNumberOfLines = 2;
+    exField.lineBreakMode = NSLineBreakByTruncatingTail;
+    [bg addSubview:exField];
+
+    // Action Buttons
+    NSButton *speakBtn = [NSButton buttonWithTitle:@"Nghe" target:self action:@selector(hudSpeakClicked:)];
+    speakBtn.frame = NSMakeRect(14, 10, 68, 28);
+    speakBtn.bezelStyle = NSBezelStyleRounded;
+    [bg addSubview:speakBtn];
+
+    NSButton *againBtn = [NSButton buttonWithTitle:@"Ôn lại" target:self action:@selector(hudAgainClicked:)];
+    againBtn.frame = NSMakeRect(86, 10, 72, 28);
+    againBtn.bezelStyle = NSBezelStyleRounded;
+    [bg addSubview:againBtn];
+
+    NSButton *goodBtn = [NSButton buttonWithTitle:@"Đã nhớ" target:self action:@selector(hudRememberedClicked:)];
+    goodBtn.frame = NSMakeRect(162, 10, 88, 28);
+    goodBtn.bezelStyle = NSBezelStyleRounded;
+    goodBtn.keyEquivalent = @"\r";
+    [bg addSubview:goodBtn];
+
+    NSButton *openBtn = [NSButton buttonWithTitle:@"Mở App" target:self action:@selector(hudOpenAppClicked:)];
+    openBtn.frame = NSMakeRect(256, 10, 96, 28);
+    openBtn.bezelStyle = NSBezelStyleRounded;
+    [bg addSubview:openBtn];
+
+    panel.contentView = bg;
+    self.vocabHudPanel = panel;
+    [panel orderFrontRegardless];
+
+    self.vocabHudTimer = [NSTimer scheduledTimerWithTimeInterval:18.0
+                                                          target:self
+                                                        selector:@selector(dismissVocabHud)
+                                                        userInfo:nil
+                                                         repeats:NO];
 }
 
 - (void)userContentController:(WKUserContentController *)userContentController
@@ -294,7 +597,29 @@
     NSString *action = dict[@"action"];
 
     if ([action isEqualToString:@"vieneuRequest"]) {
-        [self handleVieneuRequest:dict fromWebView:message.webView];
+        [self handleNativeHttpRequest:dict eventName:@"tenglish-vieneu-response" fromWebView:message.webView];
+        return;
+    }
+
+    if ([action isEqualToString:@"nativeHttpRequest"]) {
+        [self handleNativeHttpRequest:dict eventName:@"tenglish-http-response" fromWebView:message.webView];
+        return;
+    }
+
+    if ([action isEqualToString:@"startLocalVieneu"]) {
+        [self handleStartLocalVieneu:dict fromWebView:message.webView];
+        return;
+    }
+
+    if ([action isEqualToString:@"stopLocalVieneu"]) {
+        [self handleStopLocalVieneu:dict fromWebView:message.webView];
+        return;
+    }
+
+    if ([action isEqualToString:@"showVocabNotification"]) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self showNativeVocabHud:dict];
+        });
         return;
     }
 
@@ -306,8 +631,10 @@
     }
 
     if ([action isEqualToString:@"stateUpdated"]) {
-        WKWebView *other = (message.webView == self.webView) ? self.popoverWebView : self.webView;
-        [other evaluateJavaScript:@"window.dispatchEvent(new CustomEvent('tenglish-sync'));" completionHandler:nil];
+        if (self.popoverWebView) {
+            WKWebView *other = (message.webView == self.webView) ? self.popoverWebView : self.webView;
+            [other evaluateJavaScript:@"window.dispatchEvent(new CustomEvent('tenglish-sync'));" completionHandler:nil];
+        }
         return;
     }
 
@@ -331,7 +658,25 @@
     [self applyVibrancyAndAppearance];
 }
 
+// Lazy-create popoverWebView on first Menu Bar click (saves ~150MB RAM on cold launch)
+- (void)ensurePopoverCreated {
+    if (self.popover && self.popoverWebView) return;
+    NSViewController *popVC = [[NSViewController alloc] init];
+    self.popoverWebView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 364, 480)
+                                             configuration:[self makeSharedWebConfig]];
+    self.popoverWebView.UIDelegate = self;
+    [self.popoverWebView setValue:@NO forKey:@"drawsBackground"];
+    [self.popoverWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"tenglish://app/index.html?mode=menubar"]]];
+    popVC.view = self.popoverWebView;
+
+    self.popover = [[NSPopover alloc] init];
+    self.popover.contentSize = NSMakeSize(364, 480);
+    self.popover.behavior = NSPopoverBehaviorTransient;
+    self.popover.contentViewController = popVC;
+}
+
 - (void)togglePopover:(id)sender {
+    [self ensurePopoverCreated];
     if (self.popover.isShown) {
         [self.popover performClose:sender];
     } else if (self.statusItem.button) {
@@ -362,7 +707,7 @@
     NSWindowStyleMask mask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
                              NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable |
                              NSWindowStyleMaskFullSizeContentView;
-    self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1180, 810)
+    self.window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1240, 840)
                                               styleMask:mask
                                                 backing:NSBackingStoreBuffered
                                                   defer:NO];
@@ -394,26 +739,13 @@
     NSURL *appUrl = [NSURL URLWithString:@"tenglish://app/index.html"];
     [self.webView loadRequest:[NSURLRequest requestWithURL:appUrl]];
 
-    // Minimal monochrome template Menu Bar item + 364px Popover
+    // Minimal monochrome template Menu Bar item (Popover lazy-loaded on demand)
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
     self.statusItem.button.image = [self createTemplateSquircleLogo];
     self.statusItem.button.title = @"";
-    self.statusItem.button.toolTip = @"T-English — Quick Study & Vocabulary";
+    self.statusItem.button.toolTip = @"T-English — Học Tiếng Anh & Ôn Từ Vựng Nhanh";
     self.statusItem.button.target = self;
     self.statusItem.button.action = @selector(togglePopover:);
-
-    NSViewController *popVC = [[NSViewController alloc] init];
-    self.popoverWebView = [[WKWebView alloc] initWithFrame:NSMakeRect(0, 0, 364, 480)
-                                             configuration:[self makeSharedWebConfig]];
-    self.popoverWebView.UIDelegate = self;
-    [self.popoverWebView setValue:@NO forKey:@"drawsBackground"];
-    [self.popoverWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"tenglish://app/index.html?mode=menubar"]]];
-    popVC.view = self.popoverWebView;
-
-    self.popover = [[NSPopover alloc] init];
-    self.popover.contentSize = NSMakeSize(364, 480);
-    self.popover.behavior = NSPopoverBehaviorTransient;
-    self.popover.contentViewController = popVC;
 
     [[[NSWorkspace sharedWorkspace] notificationCenter]
         addObserver:self
@@ -430,6 +762,13 @@
     [self applyVibrancyAndAppearance];
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
+}
+
+- (void)applicationWillTerminate:(NSNotification *)notification {
+    [self dismissVocabHud];
+    if (self.localVieneuTask && self.localVieneuTask.isRunning) {
+        [self.localVieneuTask terminate];
+    }
 }
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {

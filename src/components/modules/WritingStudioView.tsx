@@ -111,19 +111,21 @@ export const WritingStudioView: React.FC<WritingStudioViewProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Prompt Selector */}
-      <div className="filters" style={{ marginBottom: 0 }}>
-        {WRITING_PROMPTS.map((p, idx) => (
-          <button
-            key={p.id}
-            type="button"
-            className={`fp ${idx === promptIdx ? 'on' : ''}`}
-            onClick={() => handleSelectPrompt(idx)}
-          >
-            <span>{p.category}: {p.title.slice(0, 26)}...</span>
-            <span className="tag">{p.cefr}</span>
-          </button>
-        ))}
+      {/* Compact 1-Row Prompt Selector */}
+      <div className="compact-picker">
+        <div className="compact-picker-scroll">
+          {WRITING_PROMPTS.map((p, idx) => (
+            <button
+              key={p.id}
+              type="button"
+              className={`fp ${idx === promptIdx ? 'on' : ''}`}
+              onClick={() => handleSelectPrompt(idx)}
+            >
+              <span>{p.category}: {p.title.slice(0, 24)}…</span>
+              <span className="tag">{p.cefr}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Split-Pane Exam Canvas */}
@@ -147,12 +149,51 @@ export const WritingStudioView: React.FC<WritingStudioViewProps> = ({
                 borderRadius: 12,
                 background: 'var(--raised)',
                 border: '1px solid var(--line)',
-                fontSize: 13,
-                lineHeight: 1.55,
+                fontSize: 13.5,
+                lineHeight: 1.6,
               }}
             >
               {prompt.promptText}
             </div>
+
+            {prompt.chart && (
+              <div
+                style={{
+                  padding: '12px 14px',
+                  borderRadius: 14,
+                  background: 'var(--raised)',
+                  border: '1px solid var(--line)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontSize: 11.5, fontWeight: 640, color: 'var(--cyan)' }}>
+                  Biểu đồ Số liệu Task 1: {prompt.chart.caption}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                  {prompt.chart.series.map((row) => (
+                    <div key={row.label} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span>{row.label}</span>
+                        <b className="mono">
+                          {row.value} {prompt.chart!.unit}
+                          {row.secondary !== undefined ? ` · ${row.secondary} min/day` : ''}
+                        </b>
+                      </div>
+                      <div className="bar" style={{ height: 7 }}>
+                        <div
+                          style={{
+                            width: `${Math.min(100, row.value)}%`,
+                            background: row.color || 'var(--cyan)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div>
               <div style={{ fontSize: 11.5, fontWeight: 620, color: 'var(--muted)', marginBottom: 5 }}>
@@ -273,8 +314,21 @@ export const WritingStudioView: React.FC<WritingStudioViewProps> = ({
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                      <b style={{ fontSize: 12, color: 'var(--green)' }}>{entry.preferredPhrase}</b>
-                      <span className="tag">{entry.preferredFreqPct}% chuẩn</span>
+                      <b style={{ fontSize: 12.5, color: 'var(--green)' }}>{entry.preferredPhrase}</b>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <span className="tag">{entry.preferredFreqPct}% chuẩn</span>
+                        <button
+                          type="button"
+                          className="gb sm"
+                          onClick={() => {
+                            const phrase = entry.preferredPhrase.split('/')[0].replace(/\[.*?\]/g, '').trim();
+                            updateEssayText(essay.trim() ? `${essay.trim()} ${phrase}` : phrase);
+                            onShowToast(`Đã chèn "${phrase}" vào bài viết`);
+                          }}
+                        >
+                          + Chèn
+                        </button>
+                      </div>
                     </div>
                     {entry.alternativePhrase && (
                       <div style={{ fontSize: 11, color: 'var(--rose)', marginTop: 2 }}>

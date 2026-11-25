@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { READER_ARTICLES, READER_GLOSSARY, type ReaderArticle } from '../../data/readerArticles';
+import { lookupCoreLexicon } from '../../data/coreLexicon';
 import { analyzeSentenceSyntax, type SyntaxClause } from '../../core/ai/tutorService';
 import { wordToIpa } from '../../core/phonetics/ipaScorer';
-import { speakEnglish, speakVietnamese } from '../../core/phonetics/speechIO';
+import { speakBilingual, speakEnglish, speakVietnamese } from '../../core/phonetics/speechIO';
 import { playSuccessSound } from '../../core/phonetics/soundEffects';
-import { IconPlus, IconSparkChat, IconVolume } from '../icons/Icons';
+import { IconHeadphones, IconPlus, IconSparkChat, IconVolume } from '../icons/Icons';
 
 interface ImmersiveReaderProps {
   wordFamiliarity: Record<string, 1 | 2 | 3 | 4 | 5>;
@@ -44,12 +45,22 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
   }, [customArticles, localAddedArticles]);
 
   const [activeId, setActiveId] = useState(articles[0]?.id ?? READER_ARTICLES[0].id);
-  const [lessonStep, setLessonStep] = useState<1 | 2 | 3 | 4>(2);
+  const [cefrFilter, setCefrFilter] = useState<'All' | 'A1-A2' | 'B1-B2' | 'C1-C2'>('All');
+  const [lessonStep, setLessonStep] = useState<1 | 2 | 3 | 4 | 5>(2);
   const [activeSentenceIdx, setActiveSentenceIdx] = useState(0);
   const [blurVi, setBlurVi] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importTitle, setImportTitle] = useState('');
   const [importBody, setImportBody] = useState('');
+  const [retellDraft, setRetellDraft] = useState('');
+  const [retellFeedback, setRetellFeedback] = useState<string | null>(null);
+
+  const visibleArticles = useMemo(() => {
+    if (cefrFilter === 'All') return articles;
+    if (cefrFilter === 'A1-A2') return articles.filter((a) => a.cefr === 'A1' || a.cefr === 'A2');
+    if (cefrFilter === 'B1-B2') return articles.filter((a) => a.cefr === 'B1' || a.cefr === 'B2');
+    return articles.filter((a) => a.cefr === 'C1' || a.cefr === 'C2');
+  }, [articles, cefrFilter]);
 
   const [inspectedWord, setInspectedWord] = useState<{
     word: string;
@@ -93,7 +104,7 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
   const inspectedGloss = useMemo(() => {
     if (!inspectedWord) return null;
     const key = inspectedWord.word.toLowerCase().replace(/[^a-z]/g, '');
-    const known = READER_GLOSSARY[key];
+    const known = READER_GLOSSARY[key] ?? lookupCoreLexicon(key);
     return {
       key,
       ipa: known?.ipa ?? `/${wordToIpa(key)}/`,
@@ -113,7 +124,6 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       .filter((l) => l.length > 6);
     if (lines.length === 0) return;
 
-    // Extract matching glossary words from the imported body for Step 1 Key Vocabulary
     const tokens = Array.from(
       new Set(
         importBody
@@ -123,13 +133,14 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       )
     );
     const matchedVocab = tokens
-      .filter((w) => Boolean(READER_GLOSSARY[w]))
+      .map((w) => ({ w, info: READER_GLOSSARY[w] ?? lookupCoreLexicon(w) }))
+      .filter((x) => Boolean(x.info))
       .slice(0, 8)
-      .map((w) => ({
+      .map(({ w, info }) => ({
         word: w,
-        ipa: READER_GLOSSARY[w].ipa,
-        pos: READER_GLOSSARY[w].pos,
-        meaningVi: READER_GLOSSARY[w].meaningVi,
+        ipa: info!.ipa,
+        pos: info!.pos,
+        meaningVi: info!.meaningVi,
       }));
 
     const custom: ReaderArticle = {
@@ -140,12 +151,17 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
       cefr: 'B2',
       minutes: Math.max(2, Math.ceil(lines.length / 3)),
       vocabPreview: matchedVocab,
-      sentences: lines.map((line, i) => ({
-        id: `cs-${i}`,
-        timestamp: `00:${String(i * 12).padStart(2, '0')}`,
-        en: line,
-        vi: 'Bản dịch ngữ cảnh — bấm vào từng từ để tra nghĩa và đào câu sang FSRS.',
-      })),
+      sentences: lines.map((line, i) => {
+        const totalSec = i * 12;
+        const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+        const ss = String(totalSec % 60).padStart(2, '0');
+        return {
+          id: `cs-${i}`,
+          timestamp: `${mm}:${ss}`,
+          en: line,
+          vi: 'Bấm vào từng từ tiếng Anh phía trên để tra từ điển Core Lexicon & đào câu sang FSRS.',
+        };
+      }),
       comprehensionQuiz: [],
       discussionQuestions: ['What is the key takeaway from this imported text?'],
     };
@@ -166,18 +182,23 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      {/* Article Selector + Controls */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          flexWrap: 'wrap',
-          gap: 8,
-        }}
-      >
-        <div className="filters" style={{ marginBottom: 0 }}>
-          {articles.map((a) => (
+      {/* Compact 1-Row Article Selector + CEFR Filter */}
+      <div className="compact-picker">
+        <div className="seg">
+          {(['All', 'A1-A2', 'B1-B2', 'C1-C2'] as const).map((lvl) => (
+            <button
+              key={lvl}
+              type="button"
+              className={cefrFilter === lvl ? 'on' : ''}
+              onClick={() => setCefrFilter(lvl)}
+            >
+              {lvl}
+            </button>
+          ))}
+        </div>
+
+        <div className="compact-picker-scroll">
+          {visibleArticles.map((a) => (
             <button
               key={a.id}
               type="button"
@@ -187,38 +208,43 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
                 setActiveSentenceIdx(0);
                 setInspectedWord(null);
                 setQuizAnswers({});
+                setRetellDraft('');
+                setRetellFeedback(null);
               }}
             >
-              <span>{a.kind} · {a.title.slice(0, 22)}...</span>
+              <span>{a.title.slice(0, 26)}{a.title.length > 26 ? '…' : ''}</span>
               <span className="tag">{a.cefr}</span>
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className={`gb ${blurVi ? 'hl' : ''}`} onClick={() => setBlurVi((v) => !v)}>
-            {blurVi ? 'Hiện phụ đề Việt' : 'Làm mờ phụ đề Việt'}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <button type="button" className={`gb sm ${blurVi ? 'hl' : ''}`} onClick={() => setBlurVi((v) => !v)}>
+            {blurVi ? 'Hiện Việt' : 'Mờ Việt'}
           </button>
-          <button type="button" className="pb" onClick={() => setShowImport((v) => !v)}>
-            <IconPlus size={14} />
-            <span>Nhập bài / Transcript</span>
+          <button type="button" className="pb sm" onClick={() => setShowImport((v) => !v)}>
+            <IconPlus size={13} />
+            <span>Nhập bài</span>
           </button>
         </div>
       </div>
 
-      {/* Engoo 5-Step Lesson Stepper */}
+      {/* True Engoo 5-Step Lesson Stepper */}
       <div className="seg" style={{ alignSelf: 'flex-start', flexWrap: 'wrap' }}>
         <button type="button" className={lessonStep === 1 ? 'on' : ''} onClick={() => setLessonStep(1)}>
-          1. Key Vocabulary ({article.vocabPreview.length})
+          1. Từ khóa ({article.vocabPreview.length})
         </button>
         <button type="button" className={lessonStep === 2 ? 'on' : ''} onClick={() => setLessonStep(2)}>
-          2. Đọc &amp; Nghe Song ngữ (A/S/D)
+          2. Đọc &amp; Nghe (A/S/D)
         </button>
         <button type="button" className={lessonStep === 3 ? 'on' : ''} onClick={() => setLessonStep(3)}>
-          3. Comprehension Quiz ({article.comprehensionQuiz.length})
+          3. Quiz ({article.comprehensionQuiz.length})
         </button>
         <button type="button" className={lessonStep === 4 ? 'on' : ''} onClick={() => setLessonStep(4)}>
           4. Thảo luận AI ({article.discussionQuestions.length})
+        </button>
+        <button type="button" className={lessonStep === 5 ? 'on' : ''} onClick={() => setLessonStep(5)}>
+          5. Tóm tắt Retell
         </button>
       </div>
 
@@ -371,12 +397,24 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
                         <button
                           type="button"
                           className="ib sm"
+                          aria-label={`Nghe song ngữ câu số ${idx + 1}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            speakBilingual(sent.en, sent.vi);
+                          }}
+                          title="Đọc song ngữ (EN bản xứ → VI VieNeu)"
+                        >
+                          <IconHeadphones size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="ib sm"
                           aria-label={`Nghe câu số ${idx + 1}`}
                           onClick={(e) => {
                             e.stopPropagation();
                             speakEnglish(sent.en);
                           }}
-                          title="Nghe câu này"
+                          title="Nghe câu tiếng Anh"
                         >
                           <IconVolume size={13} />
                         </button>
@@ -436,8 +474,8 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
             </div>
           </div>
 
-          {/* Right: 364px Liquid Glass Word Popover + AI Syntax X-Ray */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, alignItems: 'flex-start', minWidth: 0 }}>
+          {/* Right: Sticky 364px Liquid Glass Word Popover + AI Syntax X-Ray */}
+          <div className="reader-sticky-col">
             {inspectedWord && inspectedGloss ? (
               <div className="pop-float reader-popover" style={{ width: '100%', maxWidth: 364 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 8 }}>
@@ -665,6 +703,65 @@ export const ImmersiveReader: React.FC<ImmersiveReaderProps> = ({
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {lessonStep === 5 && (
+        <div className="bento-card">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <div>
+              <b style={{ fontSize: 15 }}>Bước 5 (Active Recall Retell): Tóm tắt bài bằng lời của bạn</b>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                Viết lại ý chính bài &ldquo;{article.title}&rdquo; trong 2–3 câu tiếng Anh, cố gắng dùng các từ khóa vừa học
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+              {article.vocabPreview.map((v) => (
+                <span key={v.word} className="pill-stat cyan">{v.word}</span>
+              ))}
+            </div>
+          </div>
+
+          <textarea
+            className="textarea-field"
+            rows={4}
+            aria-label="Tóm tắt bài đọc bằng tiếng Anh"
+            value={retellDraft}
+            onChange={(e) => setRetellDraft(e.target.value)}
+            placeholder="In summary, this article explains how..."
+          />
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+            <button
+              type="button"
+              className="pb"
+              onClick={() => {
+                const lower = retellDraft.toLowerCase();
+                const used = article.vocabPreview.filter((v) => lower.includes(v.word.toLowerCase()));
+                const words = retellDraft.trim().split(/\s+/).filter(Boolean).length;
+                if (words < 8) {
+                  setRetellFeedback('Hãy viết ít nhất 1–2 câu hoàn chỉnh (từ 10 từ trở lên) để kích hoạt trí nhớ chủ động nhé!');
+                  return;
+                }
+                playSuccessSound();
+                setRetellFeedback(
+                  `Xuất sắc! Bạn đã tóm tắt ${words} từ và chủ động tái sử dụng ${used.length}/${article.vocabPreview.length} từ khóa trọng tâm (${used.map((u) => u.word).join(', ') || 'thử chèn thêm từ khóa trên để tăng nhớ!'}).`
+                );
+                onShowToast('Đã hoàn thành trọn vẹn 5 Bước Engoo Reader!');
+              }}
+            >
+              Kiểm tra Tóm tắt &amp; Từ khóa đã dùng
+            </button>
+            <button type="button" className="gb sm" onClick={() => onDiscussWithTutor(`Here is my summary of "${article.title}": ${retellDraft}`)}>
+              Gửi AI Tutor nhận xét chi tiết →
+            </button>
+          </div>
+
+          {retellFeedback && (
+            <div style={{ padding: '12px 14px', borderRadius: 12, background: 'var(--green-s)', border: '1px solid var(--line)', fontSize: 13, color: 'var(--green)', fontWeight: 560 }}>
+              {retellFeedback}
+            </div>
+          )}
         </div>
       )}
     </div>

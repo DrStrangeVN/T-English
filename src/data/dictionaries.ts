@@ -1,4 +1,5 @@
 import type { FsrsCard, YouGlishClip } from '../core/fsrs/fsrsEngine';
+import { EXPANDED_FSRS_CARDS } from './expandedCards';
 
 const NOW = Date.now();
 const DAY = 86_400_000;
@@ -515,7 +516,10 @@ const SEEDS: CardSeed[] = [
   },
 ];
 
-export const INITIAL_FSRS_CARDS: FsrsCard[] = SEEDS.map(buildCard);
+export const INITIAL_FSRS_CARDS: FsrsCard[] = [
+  ...SEEDS.map(buildCard),
+  ...EXPANDED_FSRS_CARDS,
+];
 
 export interface DictionaryPack {
   id: string;

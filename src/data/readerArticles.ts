@@ -14,10 +14,10 @@ export interface ReaderQuizQuestion {
 
 export interface ReaderArticle {
   id: string;
-  kind: 'Engoo Daily News' | 'YouTube Transcript' | 'Tech Essay' | 'IELTS Reading';
+  kind: 'Engoo Daily News' | 'YouTube Transcript' | 'Tech Essay' | 'IELTS Reading' | 'Everyday Story';
   title: string;
   source: string;
-  cefr: 'B1' | 'B2' | 'C1' | 'C2';
+  cefr: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
   minutes: number;
   vocabPreview: Array<{
     word: string;
@@ -216,6 +216,150 @@ export const READER_ARTICLES: ReaderArticle[] = [
     discussionQuestions: [
       'Do cluttered, overly gamified apps distract you from deep language learning?',
       'How does typography clarity influence your reading endurance on Mac and iPhone?',
+    ],
+  },
+  {
+    id: 'art-5',
+    kind: 'Everyday Story',
+    title: 'A Calm 15-Minute Morning Routine Before Work',
+    source: 'T-English Everyday Fluency (A1–A2)',
+    cefr: 'A1',
+    minutes: 3,
+    vocabPreview: [
+      { word: 'routine', ipa: '/ruːˈtiːn/', pos: 'noun', meaningVi: 'thói quen hằng ngày' },
+      { word: 'coffee', ipa: '/ˈkɔː.fi/', pos: 'noun', meaningVi: 'cà phê' },
+      { word: 'breakfast', ipa: '/ˈbrek.fəst/', pos: 'noun', meaningVi: 'bữa sáng' },
+      { word: 'comfortable', ipa: '/ˈkʌmf.tə.bəl/', pos: 'adj', meaningVi: 'thoải mái' },
+    ],
+    sentences: [
+      { id: 's-15', timestamp: '00:05', en: 'Every morning at seven o’clock, Minh opens the window and drinks a glass of warm water.', vi: 'Mỗi sáng lúc bảy giờ, Minh mở cửa sổ và uống một ly nước ấm.' },
+      { id: 's-16', timestamp: '00:18', en: 'Next, he makes a cup of black coffee and prepares a simple breakfast with eggs and fresh vegetables.', vi: 'Tiếp theo, anh pha một tách cà phê đen và chuẩn bị bữa sáng đơn giản với trứng và rau tươi.' },
+      { id: 's-17', timestamp: '00:32', en: 'While eating, he reviews five English flashcards on his phone instead of scrolling social media.', vi: 'Trong lúc ăn, anh ôn năm thẻ từ vựng tiếng Anh trên điện thoại thay vì lướt mạng xã hội.' },
+      { id: 's-18', timestamp: '00:46', en: 'He repeats each word aloud so his mouth feels comfortable with natural English sounds.', vi: 'Anh đọc to lại từng từ để cơ miệng quen và thoải mái với các âm tiếng Anh tự nhiên.' },
+      { id: 's-19', timestamp: '01:00', en: 'This short routine takes only fifteen minutes, yet it gives him steady energy for the whole day.', vi: 'Thói quen ngắn này chỉ mất mười lăm phút nhưng mang lại cho anh nguồn năng lượng ổn định suốt cả ngày.' },
+    ],
+    comprehensionQuiz: [
+      {
+        q: 'What does Minh do while having breakfast?',
+        options: ['Reviews five English flashcards', 'Watches two hours of television', 'Checks work emails immediately'],
+        answerIdx: 0,
+        explainVi: 'Anh ấy ôn 5 thẻ từ vựng tiếng Anh thay vì lướt mạng xã hội.',
+      },
+      {
+        q: 'Why does Minh repeat each word aloud?',
+        options: ['To help his mouth feel comfortable with English sounds', 'To wake up his neighbors', 'Because his phone has no speaker'],
+        answerIdx: 0,
+        explainVi: 'Luyện phát âm thành tiếng giúp cơ miệng quen với khẩu hình âm tiếng Anh.',
+      },
+    ],
+    discussionQuestions: [
+      'What does your own morning routine look like on weekdays?',
+      'Could you fit a 5-minute flashcard review alongside your morning coffee?',
+    ],
+  },
+  {
+    id: 'art-6',
+    kind: 'Everyday Story',
+    title: 'Navigating Train Transfers in Tokyo Without Stress',
+    source: 'Global Traveler English (A2)',
+    cefr: 'A2',
+    minutes: 4,
+    vocabPreview: [
+      { word: 'station', ipa: '/ˈsteɪ.ʃən/', pos: 'noun', meaningVi: 'nhà ga' },
+      { word: 'platform', ipa: '/ˈplæt.fɔːrm/', pos: 'noun', meaningVi: 'sân ga tàu' },
+      { word: 'transfer', ipa: '/ˈtræns.fɜːr/', pos: 'verb', meaningVi: 'chuyển tuyến' },
+      { word: 'luggage', ipa: '/ˈlʌɡ.ɪdʒ/', pos: 'noun', meaningVi: 'hành lý' },
+    ],
+    sentences: [
+      { id: 's-20', timestamp: '00:06', en: 'Arriving at a massive train station for the first time can feel overwhelming when you carry heavy luggage.', vi: 'Lần đầu tới một nhà ga tàu khổng lồ có thể khiến bạn choáng ngợp khi mang theo hành lý nặng.' },
+      { id: 's-21', timestamp: '00:22', en: 'Fortunately, clear color-coded signs guide travelers straight to the right boarding platform.', vi: 'May mắn thay, các biển chỉ dẫn phân màu rõ ràng dẫn du khách thẳng tới đúng sân ga lên tàu.' },
+      { id: 's-22', timestamp: '00:38', en: 'If you need to transfer to another line, simply check the station number and follow the matching color.', vi: 'Nếu bạn cần chuyển sang tuyến khác, chỉ cần xem mã số ga và đi theo đúng màu tương ứng.' },
+      { id: 's-23', timestamp: '00:53', en: 'Buying a rechargeable transit card is much more convenient than purchasing a paper ticket for every ride.', vi: 'Mua thẻ đi tàu nạp tiền tiện lợi hơn nhiều so với việc mua vé giấy cho từng lượt đi.' },
+      { id: 's-24', timestamp: '01:09', en: 'Before leaving, keep your digital receipt and double-check your hotel reservation address.', vi: 'Trước khi rời ga, hãy giữ biên lai điện tử và kiểm tra lại địa chỉ đặt phòng khách sạn.' },
+    ],
+    comprehensionQuiz: [
+      {
+        q: 'Why is a rechargeable transit card recommended in the passage?',
+        options: ['It is much more convenient than buying a paper ticket each ride', 'Paper tickets are banned for tourists', 'It gives free hotel nights'],
+        answerIdx: 0,
+        explainVi: 'Thẻ đi tàu nạp tiền tiện lợi hơn nhiều so với mua vé giấy lẻ mỗi chuyến.',
+      },
+    ],
+    discussionQuestions: [
+      'Have you ever gotten lost at an airport or train station while traveling?',
+      'Which polite English phrases help most when asking strangers for directions?',
+    ],
+  },
+  {
+    id: 'art-7',
+    kind: 'Engoo Daily News',
+    title: 'Setting Healthy Digital Boundaries in Remote Teams',
+    source: 'Engoo Workplace & Wellbeing (B1)',
+    cefr: 'B1',
+    minutes: 5,
+    vocabPreview: [
+      { word: 'boundary', ipa: '/ˈbaʊn.dri/', pos: 'noun', meaningVi: 'ranh giới rõ ràng' },
+      { word: 'burnout', ipa: '/ˈbɜːrn.aʊt/', pos: 'noun', meaningVi: 'kiệt sức nghề nghiệp' },
+      { word: 'commute', ipa: '/kəˈmjuːt/', pos: 'verb', meaningVi: 'di chuyển đi làm' },
+      { word: 'distraction', ipa: '/dɪˈstræk.ʃən/', pos: 'noun', meaningVi: 'sự xao nhãng' },
+    ],
+    sentences: [
+      { id: 's-25', timestamp: '00:08', en: 'Working from home eliminates the daily commute, giving employees extra time for family and personal learning.', vi: 'Làm việc tại nhà xóa bỏ quãng đường đi làm mỗi ngày, mang lại thêm thời gian cho gia đình và tự học.' },
+      { id: 's-26', timestamp: '00:24', en: 'However, without a clear boundary between desk hours and evening rest, many remote workers slowly experience burnout.', vi: 'Tuy nhiên, nếu không có ranh giới rõ ràng giữa giờ ngồi bàn làm việc và nghỉ ngơi buổi tối, nhiều người làm từ xa dần bị kiệt sức.' },
+      { id: 's-27', timestamp: '00:41', en: 'High-performing teams agree on core focus blocks where chat notifications stay muted to reduce constant distraction.', vi: 'Các đội ngũ hiệu suất cao thống nhất những khung giờ tập trung sâu, tắt thông báo chat để giảm xao nhãng liên tục.' },
+      { id: 's-28', timestamp: '00:57', en: 'At the end of the afternoon, writing a short wrap-up note signals your brain that work is officially complete.', vi: 'Vào cuối buổi chiều, viết một ghi chú tổng kết ngắn giúp báo hiệu cho não bộ rằng công việc đã chính thức khép lại.' },
+      { id: 's-29', timestamp: '01:14', en: 'Protecting mental energy today ensures higher productivity and genuine enjoyment tomorrow.', vi: 'Bảo vệ năng lượng tinh thần hôm nay sẽ đảm bảo năng suất cao hơn và sự hứng khởi thật sự cho ngày mai.' },
+    ],
+    comprehensionQuiz: [
+      {
+        q: 'What risk do remote workers face without clear work-rest boundaries?',
+        options: ['Gradual burnout', 'Longer morning commutes', 'Losing internet speed'],
+        answerIdx: 0,
+        explainVi: 'Thiếu ranh giới rõ giữa giờ làm và giờ nghỉ dễ dẫn tới kiệt sức (burnout).',
+      },
+      {
+        q: 'How can a short afternoon wrap-up note help?',
+        options: ['It signals to your brain that work is complete', 'It replaces all team meetings forever', 'It doubles your email volume'],
+        answerIdx: 0,
+        explainVi: 'Ghi chú chốt việc cuối ngày tạo điểm dừng tâm lý rõ ràng.',
+      },
+    ],
+    discussionQuestions: [
+      'What habits help you switch off mentally after a busy workday?',
+      'Do you prefer synchronous meetings or quiet async documentation?',
+    ],
+  },
+  {
+    id: 'art-8',
+    kind: 'Engoo Daily News',
+    title: 'How Tiny Behavioral Nudges Build Unstoppable Language Momentum',
+    source: 'Behavioral Science Digest (B2)',
+    cefr: 'B2',
+    minutes: 6,
+    vocabPreview: [
+      { word: 'nudge', ipa: '/nʌdʒ/', pos: 'noun', meaningVi: 'cú hích hành vi nhẹ' },
+      { word: 'momentum', ipa: '/məʊˈmen.təm/', pos: 'noun', meaningVi: 'đà tiến triển' },
+      { word: 'incentive', ipa: '/ɪnˈsen.tɪv/', pos: 'noun', meaningVi: 'động lực khuyến khích' },
+      { word: 'threshold', ipa: '/ˈθreʃ.həʊld/', pos: 'noun', meaningVi: 'ngưỡng chuyển hóa' },
+    ],
+    sentences: [
+      { id: 's-30', timestamp: '00:07', en: 'Most language learners do not quit because English grammar is impossible; they quit because opening a heavy textbook creates friction.', vi: 'Phần lớn người học ngoại ngữ không bỏ cuộc vì ngữ pháp quá khó; họ bỏ cuộc vì việc mở một cuốn giáo trình nặng nề tạo ra lực cản.' },
+      { id: 's-31', timestamp: '00:25', en: 'Behavioral scientists discovered that a subtle visual nudge—like a single vocabulary card appearing during a short break—dramatically raises follow-through.', vi: 'Các nhà khoa học hành vi phát hiện rằng một cú hích thị giác tinh tế—như một thẻ từ vựng hiện ra trong lúc nghỉ ngắn—làm tăng mạnh tỷ lệ duy trì.' },
+      { id: 's-32', timestamp: '00:44', en: 'When a review takes under ten seconds, the psychological threshold drops to almost zero and daily momentum builds naturally.', vi: 'Khi một lượt ôn mất chưa tới mười giây, ngưỡng rào cản tâm lý giảm gần về không và đà học hằng ngày hình thành tự nhiên.' },
+      { id: 's-33', timestamp: '01:02', en: 'Paired with adaptive spaced repetition, these tiny micro-sessions create tangible progress without demanding exhausting weekend marathons.', vi: 'Kết hợp với lặp lại ngắt quãng thích ứng, các phiên vi học tập này tạo ra tiến bộ hữu hình mà không đòi hỏi học dồn kiệt sức cuối tuần.' },
+      { id: 's-34', timestamp: '01:20', en: 'Over six months, five mindful minutes a day quietly compound into thousands of active words mastered in context.', vi: 'Qua sáu tháng, năm phút tập trung mỗi ngày âm thầm cộng dồn thành hàng nghìn từ vựng chủ động được nắm vững trong ngữ cảnh.' },
+    ],
+    comprehensionQuiz: [
+      {
+        q: 'According to the article, what is the primary reason many learners stop studying?',
+        options: ['High friction when starting heavy study sessions', 'English has too few words', 'Micro-sessions take too long'],
+        answerIdx: 0,
+        explainVi: 'Lực cản tâm lý (friction) khi bắt đầu buổi học nặng mới là nguyên nhân chính khiến người học bỏ cuộc.',
+      },
+    ],
+    discussionQuestions: [
+      'How often would you like vocabulary notifications to pop up while working on your Mac?',
+      'Do quick 10-second quizzes work better for you than long 1-hour study blocks?',
     ],
   },
 ];

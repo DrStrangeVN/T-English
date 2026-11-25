@@ -9,6 +9,7 @@ interface MenuBarPopoverProps {
   dailyMinutesDone: number;
   dailyGoalMinutes: number;
   streakDays: number;
+  nativeEmbed?: boolean;
   onRateCard: (cardId: string, rating: FsrsRating) => void;
   onOpenFullApp?: () => void;
 }
@@ -18,6 +19,7 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
   dailyMinutesDone,
   dailyGoalMinutes,
   streakDays,
+  nativeEmbed = false,
   onRateCard,
   onOpenFullApp,
 }) => {
@@ -46,7 +48,10 @@ export const MenuBarPopover: React.FC<MenuBarPopoverProps> = ({
   const pct = Math.min(100, Math.round((dailyMinutesDone / Math.max(1, dailyGoalMinutes)) * 100));
 
   return (
-    <div className="menubar-shell">
+    <div
+      className={nativeEmbed ? undefined : 'menubar-shell'}
+      style={nativeEmbed ? { display: 'flex', flexDirection: 'column', gap: 10, width: '100%' } : undefined}
+    >
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div className="logo" style={{ width: 24, height: 24, borderRadius: 7 }}>

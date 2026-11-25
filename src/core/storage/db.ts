@@ -1,21 +1,56 @@
 import type { AIConfig, MemoryLedgerItem, TurnCorrection } from '../ai/tutorService';
 import type { FsrsCard } from '../fsrs/fsrsEngine';
 import type { ReaderArticle } from '../../data/readerArticles';
+import type { RoleplayScenario } from '../../data/roleplayScenarios';
 import { INITIAL_FSRS_CARDS } from '../../data/dictionaries';
+import { saveStateToIdb } from './indexedDbStore';
 
 export type ThemeMode = 'dark' | 'light';
 export type GlassIntensity = 'clear' | 'balanced' | 'solid';
 export type ViewportPreview = 'auto' | 'mac' | 'iphone' | 'menubar';
-export type SpeechEngine = 'system' | 'vieneu';
+export type SpeechEngine = 'hybrid' | 'system' | 'vieneu';
+export type VieneuMode = 'auto' | 'direct' | 'coordinator';
+export type EnglishAccent = 'US General' | 'UK RP' | 'AUS';
 
 export interface TtsConfig {
   engine: SpeechEngine;
+  englishAccent: EnglishAccent;
+  englishVoiceName: string;
   vieneuUrl: string;
+  vieneuMode: VieneuMode;
   vieneuToken: string;
   voiceId: string;
   voiceName: string;
   speed: number;
   useVieneuForVietnamese: boolean;
+  useVieneuForEnglish: boolean;
+}
+
+export type VocabNotifyInterval = 5 | 15 | 30 | 60 | 120;
+export type VocabNotifySource = 'due' | 'new' | 'weak' | 'all';
+export type VocabNotifyStyle = 'quiz' | 'flash';
+
+export interface VocabNotificationConfig {
+  enabled: boolean;
+  intervalMinutes: VocabNotifyInterval;
+  source: VocabNotifySource;
+  deckFilter: string;
+  style: VocabNotifyStyle;
+  autoSpeak: boolean;
+  useNativeHud: boolean;
+  quietStartHour: number;
+  quietEndHour: number;
+  dailyCap: number;
+}
+
+export interface VocabNotificationLogItem {
+  id: string;
+  cardId: string;
+  word: string;
+  ipa: string;
+  meaningVi: string;
+  notifiedAt: number;
+  outcome: 'pending' | 'remembered' | 'again' | 'dismissed' | 'quiz-correct' | 'quiz-wrong';
 }
 
 export interface SavedChatTurn {
@@ -43,18 +78,22 @@ export interface AppSettings {
   dailyGoalMinutes: number;
   aiConfig: AIConfig;
   ttsConfig: TtsConfig;
+  vocabNotifications: VocabNotificationConfig;
 }
 
 export interface StudyStats {
   immersionMinutes: number; // 1,000-hour target = 60,000 mins
   streakDays: number;
+  streakFreezesLeft: number;
   dailyMinutesDone: number;
+  lastActiveDate: string;
   pronunciationScores: number[];
   phonemeMastery: Record<string, number>; // ipa symbol -> 0..100
   completedDailySteps: string[];
   completedUnitIds: string[];
   cefrLevel: string;
   typingWpmBest: number;
+  xpTotal: number;
   wordFamiliarity: Record<string, 1 | 2 | 3 | 4 | 5>; // LingQ 1..5 scale
   dailyActivityLog: Record<string, number>; // YYYY-MM-DD -> activity units
 }
@@ -66,7 +105,9 @@ export interface TEnglishState {
   memoryLedger: MemoryLedgerItem[];
   writingDrafts: Record<string, string>;
   customArticles: ReaderArticle[];
+  customScenarios: RoleplayScenario[];
   tutorSessions: Record<string, SavedTutorSession>;
+  notificationHistory: VocabNotificationLogItem[];
 }
 
 export const STORAGE_KEY = 't-english-state-v2';
@@ -79,13 +120,45 @@ export function getTodayIsoDate(now = Date.now()): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-export function buildSeededActivityLog(streakDays = 42, now = Date.now()): Record<string, number> {
+export function buildSeededActivityLog(streakDays = 14, now = Date.now()): Record<string, number> {
   const log: Record<string, number> = {};
   for (let i = 0; i < streakDays; i++) {
     const key = getTodayIsoDate(now - i * 86_400_000);
     log[key] = 2 + ((i * 3) % 4);
   }
   return log;
+}
+
+/**
+ * Dynamically computes actual consecutive active streak days from dailyActivityLog.
+ * Allows continuing yesterday's streak if today hasn't logged activity yet.
+ */
+export function computeRealStreakDays(
+  log: Record<string, number>,
+  now = Date.now()
+): number {
+  const todayKey = getTodayIsoDate(now);
+  const yesterdayKey = getTodayIsoDate(now - 86_400_000);
+
+  let cursorOffset = 0;
+  if ((log[todayKey] ?? 0) > 0) {
+    cursorOffset = 0;
+  } else if ((log[yesterdayKey] ?? 0) > 0) {
+    cursorOffset = 1;
+  } else {
+    return 0;
+  }
+
+  let streak = 0;
+  for (let i = cursorOffset; i < 3650; i++) {
+    const key = getTodayIsoDate(now - i * 86_400_000);
+    if ((log[key] ?? 0) > 0) {
+      streak += 1;
+    } else {
+      break;
+    }
+  }
+  return streak;
 }
 
 export function bumpDailyActivity(
@@ -128,7 +201,35 @@ export const DEFAULT_MEMORY_LEDGER: MemoryLedgerItem[] = [
   },
 ];
 
+export const DEFAULT_TTS_CONFIG: TtsConfig = {
+  engine: 'system',
+  englishAccent: 'US General',
+  englishVoiceName: '',
+  vieneuUrl: 'http://127.0.0.1:8765',
+  vieneuMode: 'auto',
+  vieneuToken: '',
+  voiceId: '',
+  voiceName: 'Mặc định VieNeu (48kHz)',
+  speed: 1.0,
+  useVieneuForVietnamese: true,
+  useVieneuForEnglish: false,
+};
+
+export const DEFAULT_VOCAB_NOTIFICATION_CONFIG: VocabNotificationConfig = {
+  enabled: true,
+  intervalMinutes: 30,
+  source: 'due',
+  deckFilter: 'All',
+  style: 'quiz',
+  autoSpeak: false,
+  useNativeHud: true,
+  quietStartHour: 22,
+  quietEndHour: 7,
+  dailyCap: 24,
+};
+
 export function createDefaultState(): TEnglishState {
+  const seededLog = buildSeededActivityLog(14);
   return {
     cards: INITIAL_FSRS_CARDS,
     settings: {
@@ -142,28 +243,24 @@ export function createDefaultState(): TEnglishState {
         provider: 'builtin',
         apiKey: '',
         model: 'gpt-4o-mini',
-        ollamaUrl: 'http://localhost:11434',
+        ollamaUrl: 'http://127.0.0.1:11434',
       },
-      ttsConfig: {
-        engine: 'system',
-        vieneuUrl: 'http://127.0.0.1:8765',
-        vieneuToken: '',
-        voiceId: '',
-        voiceName: 'Mặc định VieNeu',
-        speed: 1.0,
-        useVieneuForVietnamese: true,
-      },
+      ttsConfig: { ...DEFAULT_TTS_CONFIG },
+      vocabNotifications: { ...DEFAULT_VOCAB_NOTIFICATION_CONFIG },
     },
     stats: {
-      immersionMinutes: 18_750, // 312.5 / 1,000 hours
-      streakDays: 42,
-      dailyMinutesDone: 14,
+      immersionMinutes: 1_260, // 21.0 hrs starter profile
+      streakDays: computeRealStreakDays(seededLog),
+      streakFreezesLeft: 2,
+      dailyMinutesDone: 10,
+      lastActiveDate: getTodayIsoDate(),
       pronunciationScores: [82, 85, 84, 87, 89, 88, 91],
       phonemeMastery: { ...DEFAULT_PHONEME_MASTERY },
       completedDailySteps: ['step-fsrs'],
       completedUnitIds: ['unit-a1-1'],
       cefrLevel: 'B2',
-      typingWpmBest: 68,
+      typingWpmBest: 62,
+      xpTotal: 1_450,
       wordFamiliarity: {
         architecture: 4,
         latency: 5,
@@ -173,12 +270,46 @@ export function createDefaultState(): TEnglishState {
         eloquent: 2,
         bottleneck: 3,
       },
-      dailyActivityLog: buildSeededActivityLog(42),
+      dailyActivityLog: seededLog,
     },
     memoryLedger: DEFAULT_MEMORY_LEDGER,
     writingDrafts: {},
     customArticles: [],
+    customScenarios: [],
     tutorSessions: {},
+    notificationHistory: [],
+  };
+}
+
+/**
+ * Clean Learner Profile (zero fake hours/streak, fresh FSRS deck ready to study).
+ */
+export function createCleanStartState(): TEnglishState {
+  const base = createDefaultState();
+  return {
+    ...base,
+    stats: {
+      ...base.stats,
+      immersionMinutes: 0,
+      streakDays: 0,
+      streakFreezesLeft: 2,
+      dailyMinutesDone: 0,
+      lastActiveDate: getTodayIsoDate(),
+      pronunciationScores: [],
+      completedDailySteps: [],
+      completedUnitIds: [],
+      cefrLevel: 'A2',
+      typingWpmBest: 0,
+      xpTotal: 0,
+      wordFamiliarity: {},
+      dailyActivityLog: {},
+    },
+    memoryLedger: [],
+    writingDrafts: {},
+    customArticles: [],
+    customScenarios: [],
+    tutorSessions: {},
+    notificationHistory: [],
   };
 }
 
@@ -190,8 +321,37 @@ export function hydrateState(parsed: Partial<TEnglishState>): TEnglishState {
       ? providerRaw
       : 'builtin';
 
+  const ttsEngineRaw = parsed.settings?.ttsConfig?.engine as string | undefined;
+  const safeTtsEngine: SpeechEngine =
+    ttsEngineRaw === 'vieneu' || ttsEngineRaw === 'hybrid' || ttsEngineRaw === 'system'
+      ? ttsEngineRaw
+      : 'system';
+
+  const activityLog =
+    parsed.stats?.dailyActivityLog && Object.keys(parsed.stats.dailyActivityLog).length > 0
+      ? parsed.stats.dailyActivityLog
+      : parsed.stats?.immersionMinutes === 0
+        ? {}
+        : fallback.stats.dailyActivityLog;
+
+  // Merge new built-in cards seamlessly if upgrading from older version with fewer cards
+  let mergedCards = Array.isArray(parsed.cards) && parsed.cards.length > 0 ? parsed.cards : fallback.cards;
+  if (Array.isArray(parsed.cards) && parsed.cards.length > 0 && parsed.cards.length < 35) {
+    const existingWords = new Set(parsed.cards.map((c) => c.word.toLowerCase()));
+    const extras = INITIAL_FSRS_CARDS.filter((c) => !existingWords.has(c.word.toLowerCase()));
+    if (extras.length > 0) {
+      mergedCards = [...parsed.cards, ...extras];
+    }
+  }
+
+  const today = getTodayIsoDate();
+  const lastDate = parsed.stats?.lastActiveDate ?? today;
+  const dailyMinutesDone = lastDate === today ? (parsed.stats?.dailyMinutesDone ?? fallback.stats.dailyMinutesDone) : 0;
+  const completedDailySteps = lastDate === today ? (parsed.stats?.completedDailySteps ?? fallback.stats.completedDailySteps) : [];
+  const realStreak = computeRealStreakDays(activityLog);
+
   return {
-    cards: Array.isArray(parsed.cards) && parsed.cards.length > 0 ? parsed.cards : fallback.cards,
+    cards: mergedCards,
     settings: {
       ...fallback.settings,
       ...(parsed.settings ?? {}),
@@ -203,32 +363,36 @@ export function hydrateState(parsed: Partial<TEnglishState>): TEnglishState {
       ttsConfig: {
         ...fallback.settings.ttsConfig,
         ...(parsed.settings?.ttsConfig ?? {}),
-        engine: parsed.settings?.ttsConfig?.engine === 'vieneu' ? 'vieneu' : 'system',
+        engine: safeTtsEngine,
+      },
+      vocabNotifications: {
+        ...fallback.settings.vocabNotifications,
+        ...(parsed.settings?.vocabNotifications ?? {}),
       },
     },
     stats: {
       ...fallback.stats,
       ...(parsed.stats ?? {}),
+      dailyMinutesDone,
+      completedDailySteps,
+      lastActiveDate: today,
+      streakDays: realStreak,
       phonemeMastery: {
         ...fallback.stats.phonemeMastery,
         ...(parsed.stats?.phonemeMastery ?? {}),
       },
-      wordFamiliarity: {
-        ...fallback.stats.wordFamiliarity,
-        ...(parsed.stats?.wordFamiliarity ?? {}),
-      },
-      dailyActivityLog:
-        parsed.stats?.dailyActivityLog && Object.keys(parsed.stats.dailyActivityLog).length > 0
-          ? parsed.stats.dailyActivityLog
-          : fallback.stats.dailyActivityLog,
+      wordFamiliarity:
+        parsed.stats?.wordFamiliarity !== undefined
+          ? parsed.stats.wordFamiliarity
+          : fallback.stats.wordFamiliarity,
+      dailyActivityLog: activityLog,
     },
-    memoryLedger:
-      Array.isArray(parsed.memoryLedger) && parsed.memoryLedger.length > 0
-        ? parsed.memoryLedger
-        : fallback.memoryLedger,
+    memoryLedger: Array.isArray(parsed.memoryLedger) ? parsed.memoryLedger : fallback.memoryLedger,
     writingDrafts: parsed.writingDrafts && typeof parsed.writingDrafts === 'object' ? parsed.writingDrafts : {},
-    customArticles: Array.isArray(parsed.customArticles) ? parsed.customArticles.slice(0, 20) : [],
+    customArticles: Array.isArray(parsed.customArticles) ? parsed.customArticles.slice(0, 30) : [],
+    customScenarios: Array.isArray(parsed.customScenarios) ? parsed.customScenarios.slice(0, 20) : [],
     tutorSessions: parsed.tutorSessions && typeof parsed.tutorSessions === 'object' ? parsed.tutorSessions : {},
+    notificationHistory: Array.isArray(parsed.notificationHistory) ? parsed.notificationHistory.slice(0, 100) : [],
   };
 }
 
@@ -248,12 +412,14 @@ export function loadState(): TEnglishState {
 }
 
 export function saveState(state: TEnglishState): void {
-  if (typeof window === 'undefined' || !window.localStorage) return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {
-    // Ignore quota overflow safely
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      // If localStorage hits 5MB quota, IndexedDB below still stores the full state safely
+    }
   }
+  void saveStateToIdb(state);
 }
 
 export function exportStateBackup(state: TEnglishState, includeSecrets = false): string {
@@ -271,7 +437,7 @@ export function exportStateBackup(state: TEnglishState, includeSecrets = false):
       },
     },
   };
-  return JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), data: sanitized }, null, 2);
+  return JSON.stringify({ version: 3, exportedAt: new Date().toISOString(), data: sanitized }, null, 2);
 }
 
 export function importStateBackup(rawJson: string): TEnglishState {

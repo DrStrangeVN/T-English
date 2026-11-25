@@ -4,19 +4,39 @@ import {
   type FsrsCard,
   type FsrsRating,
 } from './core/fsrs/fsrsEngine';
+import {
+  countNotificationsToday,
+  isWithinQuietHours,
+  pickNextNotificationCard,
+} from './core/fsrs/vocabNotifier';
 import { wordToIpa } from './core/phonetics/ipaScorer';
-import { configureSpeechEngine, notifyMacNativeHost, notifyMacStateSync } from './core/phonetics/speechIO';
+import {
+  configureSpeechEngine,
+  notifyMacNativeHost,
+  notifyMacStateSync,
+  showNativeVocabNotification,
+  speakBilingual,
+  stopSpeaking,
+  subscribeSpeechState,
+  type SpeechRuntimeState,
+} from './core/phonetics/speechIO';
 import {
   STORAGE_KEY,
   bumpDailyActivity,
+  computeRealStreakDays,
+  createCleanStartState,
   createDefaultState,
+  getTodayIsoDate,
+  hydrateState,
   loadState,
   saveState,
   type AppSettings,
   type TEnglishState,
   type ViewportPreview,
 } from './core/storage/db';
+import { loadStateFromIdb } from './core/storage/indexedDbStore';
 import {
+  IconBellRing,
   IconBook,
   IconCards,
   IconCurriculum,
@@ -33,6 +53,7 @@ import { TopHeader } from './components/layout/TopHeader';
 import { CommandPalette } from './components/layout/CommandPalette';
 import { MenuBarPopover } from './components/layout/MenuBarPopover';
 import { FloatingMiniDock } from './components/common/FloatingMiniDock';
+import { VocabNotificationPopup } from './components/common/VocabNotificationPopup';
 import { DashboardView } from './components/modules/DashboardView';
 
 const CurriculumView = lazy(() =>
@@ -77,56 +98,56 @@ const TAB_META: Record<
 > = {
   dashboard: {
     label: 'Dashboard',
-    title: 'Command Center',
-    subtitle: 'KPI FSRS v5, Heatmap 365 ngày, 6 Kỹ năng & lộ trình 1,000 giờ',
-    badge: 'v2.0 Tahoe',
+    title: 'Learning Studio',
+    subtitle: 'Phiên học hôm nay · 6 kỹ năng · Từ vựng',
+    badge: 'v3.0',
   },
   curriculum: {
     label: 'Lộ trình CEFR',
-    title: 'CEFR Path & Placement Test',
-    subtitle: 'Kiểm tra xếp lớp 12 câu & 6 chặng ngữ pháp thực chiến A1 → C2',
-    badge: 'Test-English',
+    title: 'Lộ trình CEFR',
+    subtitle: 'Xếp lớp 12 câu & ngữ pháp A1 → C2',
+    badge: 'A1–C2',
   },
   shadowing: {
     label: 'Shadowing IPA',
-    title: 'AI Phonetics & Minimal Pairs',
-    subtitle: 'Sơ đồ khoang miệng SVG, Minimal Pairs, Pitch F0 & Connected Speech',
-    badge: 'Coach Shane',
+    title: 'Shadowing IPA',
+    subtitle: 'Voice Mirror A/B, IPA & Minimal Pairs',
+    badge: 'ELSA Lab',
   },
   tutor: {
     label: 'AI Roleplay',
-    title: 'Real-Time AI Tutor',
-    subtitle: '3-Star Roleplay Missions, Live Voice Call & Explain My Mistake',
-    badge: 'Memory Ledger',
+    title: 'AI Roleplay',
+    subtitle: '12 kịch bản A1–C1 & Tự tạo tình huống',
+    badge: 'Speak AI',
   },
   writing: {
     label: 'Writing Studio',
-    title: 'IELTS Writing & Ludwig Studio',
-    subtitle: 'Chấm điểm 4 tiêu chí IELTS, In-Line Diff & tra cứu Ludwig.guru',
-    badge: 'Band 8.5 Lab',
+    title: 'Writing Studio',
+    subtitle: 'Chấm IELTS 4 tiêu chí, Biểu đồ & Ludwig',
+    badge: 'Band 8.5',
   },
   fsrs: {
-    label: 'FSRS Deck',
-    title: 'FSRS v5, YouGlish & Word Roots',
-    subtitle: 'Lặp lại ngắt quãng S/D/R, ví dụ US/UK/AUS & bản đồ gốc từ Membean',
+    label: 'FSRS & Từ vựng',
+    title: 'FSRS & Từ vựng',
+    subtitle: '54+ thẻ A1–C2, Quiz Sprint & Nhắc từ',
     badge: 'FSRS v5',
   },
   reader: {
     label: 'Engoo Reader',
-    title: 'Engoo 5-Step Dual-Sub Reader',
-    subtitle: 'Đọc báo 5 bước, Popover 364px, phím tắt A/S/D & Grammar X-Ray',
-    badge: '5-Step Flow',
+    title: 'Engoo Reader',
+    subtitle: '8 bài A1–C2 · 5 bước · Song ngữ VieNeu',
+    badge: '5-Step',
   },
   qwerty: {
     label: 'Qwerty Lab',
-    title: 'Monkeytype & DailyDictation',
-    subtitle: 'Gõ từ vựng Zen Mode, âm thanh phím cơ & nghe chép câu nối âm',
-    badge: '60+ Từ & 8 Bài',
+    title: 'Qwerty Lab',
+    subtitle: 'Gõ Zen Mode & Nghe chép 12 bài nói nối',
+    badge: 'Dictation',
   },
   settings: {
     label: 'Cài đặt',
-    title: 'System & AI Preferences',
-    subtitle: 'Cấu hình Liquid Glass, Web Audio, FSRS Retention & AI Providers',
+    title: 'Cài đặt',
+    subtitle: 'Liquid Glass · Hybrid EN + VieNeu 48kHz',
     badge: 'Local-First',
   },
 };
@@ -141,7 +162,20 @@ export const App: React.FC = () => {
   const [preview, setPreview] = useState<ViewportPreview>('auto');
   const [tutorSeedPrompt, setTutorSeedPrompt] = useState<string | null>(null);
   const [openAddFormNonce, setOpenAddFormNonce] = useState(0);
+  const [speechRuntime, setSpeechRuntime] = useState<SpeechRuntimeState>({
+    status: 'idle',
+    text: '',
+    lang: 'en-US',
+    engineUsed: 'system',
+  });
+  const [activeNotifCard, setActiveNotifCard] = useState<FsrsCard | null>(null);
+  const [lastRatedSnapshot, setLastRatedSnapshot] = useState<FsrsCard | null>(null);
+
   const syncSourceRef = useRef<'local' | 'external'>('local');
+  const saveTimerRef = useRef<number | null>(null);
+  const lastNotifyAtRef = useRef<number>(Date.now());
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const isMenuBarUrlMode = useMemo(() => {
     if (typeof window === 'undefined') return false;
@@ -154,18 +188,55 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2600);
+    const t = window.setTimeout(() => setToast(null), 2800);
     return () => window.clearTimeout(t);
   }, [toast]);
 
+  // Subscribe to global TTS playback runtime state
+  useEffect(() => subscribeSpeechState(setSpeechRuntime), []);
+
+  // Hydrate larger snapshots from IndexedDB on initial mount if available
+  useEffect(() => {
+    let mounted = true;
+    void loadStateFromIdb<Partial<TEnglishState>>().then((idbState) => {
+      if (!mounted || !idbState || !Array.isArray(idbState.cards)) return;
+      // Only adopt IDB state if it has strictly more cards/history/articles than localStorage
+      const cur = stateRef.current;
+      const idbRicher =
+        idbState.cards.length > cur.cards.length ||
+        (idbState.customArticles?.length ?? 0) > cur.customArticles.length;
+      if (idbRicher) {
+        syncSourceRef.current = 'external';
+        setState(hydrateState(idbState));
+      }
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Debounced persistence (350ms) prevents keystroke lag while keeping IndexedDB + localStorage synced
   useEffect(() => {
     if (syncSourceRef.current === 'external') {
       syncSourceRef.current = 'local';
       return;
     }
-    saveState(state);
-    notifyMacStateSync();
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveState(state);
+      notifyMacStateSync();
+    }, 350);
+    return () => {
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    };
   }, [state]);
+
+  // Ensure immediate flush on unload
+  useEffect(() => {
+    const flush = () => saveState(stateRef.current);
+    window.addEventListener('beforeunload', flush);
+    return () => window.removeEventListener('beforeunload', flush);
+  }, []);
 
   useEffect(() => {
     const handleExternalSync = () => {
@@ -217,6 +288,160 @@ export const App: React.FC = () => {
     });
   }, [state.settings, state.cards, state.stats.streakDays, state.stats.cefrLevel, sidebarCollapsed, mobileDrawerOpen]);
 
+  const handleRateCard = useCallback(
+    (
+      cardId: string,
+      rating: FsrsRating,
+      notifOutcome?: 'remembered' | 'again' | 'quiz-correct' | 'quiz-wrong'
+    ) => {
+      setState((prev) => {
+        const before = prev.cards.find((c) => c.id === cardId) ?? null;
+        if (before) setLastRatedSnapshot(before);
+        const now = Date.now();
+        const nextLog = bumpDailyActivity(prev.stats.dailyActivityLog, 1, now);
+        const nextHistory = notifOutcome
+          ? prev.notificationHistory.map((item, i) =>
+              i === 0 && item.cardId === cardId ? { ...item, outcome: notifOutcome } : item
+            )
+          : prev.notificationHistory;
+
+        return {
+          ...prev,
+          cards: prev.cards.map((c) =>
+            c.id === cardId
+              ? scheduleCard(c, rating, now, prev.settings.desiredRetention)
+              : c
+          ),
+          stats: {
+            ...prev.stats,
+            dailyMinutesDone: prev.stats.dailyMinutesDone + 1,
+            immersionMinutes: prev.stats.immersionMinutes + 1,
+            xpTotal: (prev.stats.xpTotal ?? 0) + (rating >= 3 ? 15 : 5),
+            lastActiveDate: getTodayIsoDate(now),
+            dailyActivityLog: nextLog,
+            streakDays: computeRealStreakDays(nextLog, now),
+          },
+          notificationHistory: nextHistory,
+        };
+      });
+    },
+    []
+  );
+
+  const handleUndoLastRating = useCallback(() => {
+    if (!lastRatedSnapshot) return;
+    const restored = lastRatedSnapshot;
+    setState((prev) => ({
+      ...prev,
+      cards: prev.cards.map((c) => (c.id === restored.id ? restored : c)),
+    }));
+    setLastRatedSnapshot(null);
+    showToast(`Đã hoàn tác lượt chấm thẻ "${restored.word}"`);
+  }, [lastRatedSnapshot, showToast]);
+
+  const handleEditCard = useCallback(
+    (cardId: string, patch: Partial<Pick<FsrsCard, 'word' | 'ipa' | 'meaningVi' | 'clozeSentence' | 'deck' | 'mnemonic'>>) => {
+      setState((prev) => ({
+        ...prev,
+        cards: prev.cards.map((c) => (c.id === cardId ? { ...c, ...patch } : c)),
+      }));
+      showToast('Đã cập nhật nội dung thẻ FSRS');
+    },
+    [showToast]
+  );
+
+  // Trigger a Smart Vocabulary Notification (In-App Floating Card + Optional Native macOS Desktop HUD)
+  const triggerVocabNotification = useCallback(
+    (manual = false) => {
+      const cur = stateRef.current;
+      const cfg = cur.settings.vocabNotifications;
+      const now = Date.now();
+      if (!manual) {
+        if (!cfg.enabled) return;
+        if (isWithinQuietHours(cfg, now)) return;
+        if (countNotificationsToday(cur.notificationHistory, now) >= cfg.dailyCap) return;
+      }
+
+      const card = pickNextNotificationCard(cur.cards, cfg, cur.notificationHistory, now);
+      if (!card) {
+        if (manual) showToast('Kho thẻ đang trống — hãy thêm thẻ từ vựng mới.');
+        return;
+      }
+
+      lastNotifyAtRef.current = now;
+      setActiveNotifCard(card);
+      setState((prev) => ({
+        ...prev,
+        notificationHistory: [
+          {
+            id: `vn-${now}`,
+            cardId: card.id,
+            word: card.word,
+            ipa: card.ipa,
+            meaningVi: card.meaningVi,
+            notifiedAt: now,
+            outcome: 'pending' as const,
+          },
+          ...prev.notificationHistory,
+        ].slice(0, 80),
+      }));
+
+      if (cfg.useNativeHud) {
+        showNativeVocabNotification({
+          cardId: card.id,
+          word: card.word,
+          ipa: card.ipa,
+          meaningVi: card.meaningVi,
+          example: card.clozeSentence.replace(/\{\{|\}\}/g, ''),
+          cefr: card.cefr,
+        });
+      }
+
+      if (cfg.autoSpeak) {
+        speakBilingual(card.word, card.meaningVi);
+      }
+    },
+    [showToast]
+  );
+
+  // Background Vocabulary Notification Scheduler (checks every 30s)
+  useEffect(() => {
+    if (isMenuBarUrlMode) return;
+    const id = window.setInterval(() => {
+      const cfg = stateRef.current.settings.vocabNotifications;
+      if (!cfg.enabled) return;
+      const intervalMs = Math.max(1, cfg.intervalMinutes) * 60_000;
+      if (Date.now() - lastNotifyAtRef.current >= intervalMs) {
+        triggerVocabNotification(false);
+      }
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [isMenuBarUrlMode, triggerVocabNotification]);
+
+  // Listen for actions clicked inside the Native macOS Floating Glass Vocab HUD
+  useEffect(() => {
+    const onHudAction = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ type: string; cardId: string; rating?: number }>).detail;
+      if (!detail) return;
+      const card = stateRef.current.cards.find((c) => c.id === detail.cardId);
+      if (detail.type === 'speak' && card) {
+        speakBilingual(`${card.word}. ${card.clozeSentence.replace(/\{\{|\}\}/g, '')}`, card.meaningVi);
+      } else if (detail.type === 'rate' && card) {
+        const r = (detail.rating === 1 ? 1 : 3) as FsrsRating;
+        handleRateCard(card.id, r, r === 1 ? 'again' : 'remembered');
+        setActiveNotifCard(null);
+        showToast(r === 1 ? `Đã xếp "${card.word}" ôn lại sớm` : `Tuyệt vời! Đã ghi nhớ "${card.word}" (+15 XP)`);
+      } else if (detail.type === 'open') {
+        setActiveNotifCard(null);
+        setActiveTab('fsrs');
+      } else if (detail.type === 'dismiss') {
+        setActiveNotifCard(null);
+      }
+    };
+    window.addEventListener('tenglish-vocab-hud-action', onHudAction);
+    return () => window.removeEventListener('tenglish-vocab-hud-action', onHudAction);
+  }, [handleRateCard, showToast]);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
@@ -239,6 +464,7 @@ export const App: React.FC = () => {
         };
         if (idxMap[e.key]) {
           e.preventDefault();
+          stopSpeaking();
           setActiveTab(idxMap[e.key]);
         }
       }
@@ -252,27 +478,15 @@ export const App: React.FC = () => {
     [state.cards]
   );
 
+  const notificationsToday = useMemo(
+    () => countNotificationsToday(state.notificationHistory),
+    [state.notificationHistory]
+  );
+
   const handleUpdateSettings = (patch: Partial<AppSettings>) => {
     setState((prev) => ({
       ...prev,
       settings: { ...prev.settings, ...patch },
-    }));
-  };
-
-  const handleRateCard = (cardId: string, rating: FsrsRating) => {
-    setState((prev) => ({
-      ...prev,
-      cards: prev.cards.map((c) =>
-        c.id === cardId
-          ? scheduleCard(c, rating, Date.now(), prev.settings.desiredRetention)
-          : c
-      ),
-      stats: {
-        ...prev.stats,
-        dailyMinutesDone: prev.stats.dailyMinutesDone + 1,
-        immersionMinutes: prev.stats.immersionMinutes + 1,
-        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 1),
-      },
     }));
   };
 
@@ -309,7 +523,7 @@ export const App: React.FC = () => {
       nuance: 'Thẻ được trích xuất trực tiếp từ quá trình luyện tập thực tế.',
       mnemonic: `Gắn với ngữ cảnh: ${input.clozeSentence.replace(/\{\{|\}\}/g, '')}`,
       deck: input.deck,
-      cefr: 'C1',
+      cefr: 'B2',
       sourceTitle: input.sourceTitle,
       youglishContexts: [
         {
@@ -356,6 +570,8 @@ export const App: React.FC = () => {
           updatedMastery[sym] = Math.min(99, updatedMastery[sym] + 1);
         }
       });
+      const now = Date.now();
+      const nextLog = bumpDailyActivity(prev.stats.dailyActivityLog, 2, now);
       return {
         ...prev,
         stats: {
@@ -364,25 +580,38 @@ export const App: React.FC = () => {
           phonemeMastery: updatedMastery,
           dailyMinutesDone: prev.stats.dailyMinutesDone + 2,
           immersionMinutes: prev.stats.immersionMinutes + 2,
-          dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 2),
+          xpTotal: (prev.stats.xpTotal ?? 0) + 25,
+          lastActiveDate: getTodayIsoDate(now),
+          dailyActivityLog: nextLog,
+          streakDays: computeRealStreakDays(nextLog, now),
         },
       };
     });
   };
 
   const addStudyMinutes = useCallback((mins: number) => {
-    setState((prev) => ({
-      ...prev,
-      stats: {
-        ...prev.stats,
-        dailyMinutesDone: prev.stats.dailyMinutesDone + mins,
-        immersionMinutes: prev.stats.immersionMinutes + mins,
-        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, mins),
-      },
-    }));
+    setState((prev) => {
+      const now = Date.now();
+      const nextLog = bumpDailyActivity(prev.stats.dailyActivityLog, mins, now);
+      return {
+        ...prev,
+        stats: {
+          ...prev.stats,
+          dailyMinutesDone: prev.stats.dailyMinutesDone + mins,
+          immersionMinutes: prev.stats.immersionMinutes + mins,
+          xpTotal: (prev.stats.xpTotal ?? 0) + mins * 10,
+          lastActiveDate: getTodayIsoDate(now),
+          dailyActivityLog: nextLog,
+          streakDays: computeRealStreakDays(nextLog, now),
+        },
+      };
+    });
   }, []);
 
   const navigateTo = (tab: NavTab) => {
+    if (tab !== activeTab) {
+      stopSpeaking();
+    }
     setActiveTab(tab);
     setMobileDrawerOpen(false);
   };
@@ -399,17 +628,17 @@ export const App: React.FC = () => {
 
   const navItems: Array<{ id: NavTab; label: string; badge?: string; icon: React.ReactNode }> = [
     { id: 'dashboard', label: 'Dashboard', icon: <IconDashboard size={15} /> },
-    { id: 'curriculum', label: 'Lộ trình CEFR', badge: state.stats.cefrLevel, icon: <IconCurriculum size={15} /> },
-    { id: 'shadowing', label: 'Shadowing IPA', icon: <IconWaveform size={15} /> },
-    { id: 'tutor', label: 'AI Roleplay', icon: <IconSparkChat size={15} /> },
-    { id: 'writing', label: 'Writing Studio', icon: <IconPen size={15} /> },
     {
       id: 'fsrs',
-      label: 'FSRS Deck',
+      label: 'FSRS & Từ vựng',
       badge: dueCount > 0 ? String(dueCount) : undefined,
       icon: <IconCards size={15} />,
     },
+    { id: 'shadowing', label: 'Shadowing IPA', icon: <IconWaveform size={15} /> },
+    { id: 'tutor', label: 'AI Roleplay', icon: <IconSparkChat size={15} /> },
     { id: 'reader', label: 'Engoo Reader', icon: <IconBook size={15} /> },
+    { id: 'writing', label: 'Writing Studio', icon: <IconPen size={15} /> },
+    { id: 'curriculum', label: 'Lộ trình CEFR', badge: state.stats.cefrLevel, icon: <IconCurriculum size={15} /> },
     { id: 'qwerty', label: 'Qwerty Lab', icon: <IconKeyboard size={15} /> },
     { id: 'settings', label: 'Cài đặt', icon: <IconSettings size={15} /> },
   ];
@@ -417,23 +646,29 @@ export const App: React.FC = () => {
   if (isMenuBarUrlMode || preview === 'menubar') {
     return (
       <div
-        style={{
-          height: '100dvh',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: isMenuBarUrlMode ? 'flex-start' : 'center',
-          padding: isMenuBarUrlMode ? 8 : 20,
-          gap: 12,
-          position: 'relative',
-          zIndex: 1,
-        }}
+        className={isMenuBarUrlMode ? 'menubar-native-shell' : undefined}
+        style={
+          isMenuBarUrlMode
+            ? undefined
+            : {
+                height: '100dvh',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 20,
+                gap: 12,
+                position: 'relative',
+                zIndex: 1,
+              }
+        }
       >
         <MenuBarPopover
           cards={state.cards}
           dailyMinutesDone={state.stats.dailyMinutesDone}
           dailyGoalMinutes={state.settings.dailyGoalMinutes}
           streakDays={state.stats.streakDays}
+          nativeEmbed={isMenuBarUrlMode}
           onRateCard={handleRateCard}
           onOpenFullApp={isMenuBarUrlMode ? undefined : () => setPreview('auto')}
         />
@@ -460,7 +695,7 @@ export const App: React.FC = () => {
             <IconLogo size={15} />
           </div>
           <b>T-English</b>
-          <span className="ver-pill">v2.0</span>
+          <span className="ver-pill">v3.0</span>
           <button
             type="button"
             className="sb-collapse"
@@ -472,7 +707,7 @@ export const App: React.FC = () => {
           </button>
         </div>
 
-        <div className="slabel">Học tập &amp; Chinh phục CEFR</div>
+        <div className="slabel">Không gian học tập</div>
         <nav className="nav">
           {navItems.map((item) => (
             <button
@@ -490,6 +725,10 @@ export const App: React.FC = () => {
 
         <div className="slabel">Truy cập nhanh</div>
         <div className="qlist">
+          <button type="button" className="qi" onClick={() => triggerVocabNotification(true)}>
+            <IconBellRing size={13} />
+            <b>Thông báo 1 từ vựng ngay</b>
+          </button>
           <button type="button" className="qi" onClick={() => navigateTo('curriculum')}>
             <span className="sdot" style={{ background: 'var(--green)' }} />
             <b>Placement Test (CEFR)</b>
@@ -500,11 +739,7 @@ export const App: React.FC = () => {
           </button>
           <button type="button" className="qi" onClick={() => navigateTo('shadowing')}>
             <span className="sdot" style={{ background: 'var(--cyan)' }} />
-            <b>Minimal Pairs /θ/ vs /s/</b>
-          </button>
-          <button type="button" className="qi" onClick={() => navigateTo('fsrs')}>
-            <span className="sdot" style={{ background: 'var(--indigo)' }} />
-            <b>Membean Word Roots</b>
+            <b>Minimal Pairs &amp; Ending -ed</b>
           </button>
         </div>
 
@@ -526,7 +761,7 @@ export const App: React.FC = () => {
             </svg>
             <div className="cap-t">
               <b>{(state.stats.immersionMinutes / 60).toFixed(1)} / 1,000 hrs</b>
-              <span>{state.stats.streakDays} ngày liên tiếp</span>
+              <span>{state.stats.streakDays} ngày liên tiếp · {state.stats.xpTotal ?? 0} XP</span>
             </div>
           </div>
         </div>
@@ -557,15 +792,19 @@ export const App: React.FC = () => {
             navigateTo('fsrs');
           }}
           ttsEngine={state.settings.ttsConfig.engine}
+          speechRuntime={speechRuntime}
+          onStopSpeaking={stopSpeaking}
           onOpenTtsSettings={() => navigateTo('settings')}
+          vocabNotifyEnabled={state.settings.vocabNotifications.enabled}
+          onTriggerVocabNotify={() => triggerVocabNotification(true)}
         />
 
         <main className="main">
-          <div className="wrap" style={{ paddingBottom: 76 }}>
+          <div className="wrap" style={{ paddingBottom: 80 }}>
             <Suspense
               fallback={
-                <div className="panel" style={{ padding: 24, color: 'var(--muted)' }}>
-                  Đang tải module học tập...
+                <div className="bento-card" style={{ color: 'var(--muted)' }}>
+                  Đang tải không gian học tập...
                 </div>
               }
             >
@@ -574,7 +813,11 @@ export const App: React.FC = () => {
                   cards={state.cards}
                   stats={state.stats}
                   dailyGoalMinutes={state.settings.dailyGoalMinutes}
+                  vocabNotifications={state.settings.vocabNotifications}
+                  notificationsToday={notificationsToday}
                   onNavigate={navigateTo}
+                  onQuickRateCard={(id, r) => handleRateCard(id, r)}
+                  onTriggerVocabNotifyNow={() => triggerVocabNotification(true)}
                   onToggleDailyStep={(stepId) => {
                     setState((prev) => {
                       const exists = prev.stats.completedDailySteps.includes(stepId);
@@ -595,19 +838,25 @@ export const App: React.FC = () => {
                   completedUnitIds={state.stats.completedUnitIds}
                   cefrLevel={state.stats.cefrLevel}
                   onCompleteUnit={(unitId) => {
-                    setState((prev) => ({
-                      ...prev,
-                      stats: {
-                        ...prev.stats,
-                        completedUnitIds: prev.stats.completedUnitIds.includes(unitId)
-                          ? prev.stats.completedUnitIds
-                          : [...prev.stats.completedUnitIds, unitId],
-                        dailyMinutesDone: prev.stats.dailyMinutesDone + 5,
-                        immersionMinutes: prev.stats.immersionMinutes + 5,
-                        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 5),
-                      },
-                    }));
-                    showToast('Đã ghi nhận hoàn thành Unit vào lộ trình CEFR!');
+                    setState((prev) => {
+                      const now = Date.now();
+                      const nextLog = bumpDailyActivity(prev.stats.dailyActivityLog, 5, now);
+                      return {
+                        ...prev,
+                        stats: {
+                          ...prev.stats,
+                          completedUnitIds: prev.stats.completedUnitIds.includes(unitId)
+                            ? prev.stats.completedUnitIds
+                            : [...prev.stats.completedUnitIds, unitId],
+                          dailyMinutesDone: prev.stats.dailyMinutesDone + 5,
+                          immersionMinutes: prev.stats.immersionMinutes + 5,
+                          xpTotal: (prev.stats.xpTotal ?? 0) + 50,
+                          dailyActivityLog: nextLog,
+                          streakDays: computeRealStreakDays(nextLog, now),
+                        },
+                      };
+                    });
+                    showToast('Đã ghi nhận hoàn thành Unit vào lộ trình CEFR (+50 XP)!');
                   }}
                   onSavePlacementLevel={(cefr) => {
                     setState((prev) => ({
@@ -632,7 +881,15 @@ export const App: React.FC = () => {
                   aiConfig={state.settings.aiConfig}
                   memoryLedger={state.memoryLedger}
                   savedSessions={state.tutorSessions}
+                  customScenarios={state.customScenarios}
                   initialTopicPrompt={tutorSeedPrompt}
+                  onAddCustomScenario={(sc) => {
+                    setState((prev) => ({
+                      ...prev,
+                      customScenarios: [sc, ...prev.customScenarios],
+                    }));
+                    showToast(`Đã tạo kịch bản AI Roleplay "${sc.title}"`);
+                  }}
                   onSaveSession={(scenarioId, session) => {
                     setState((prev) => ({
                       ...prev,
@@ -676,12 +933,14 @@ export const App: React.FC = () => {
                         ];
                       }
 
+                      const nextLog = bumpDailyActivity(prev.stats.dailyActivityLog, 1, now);
                       return {
                         ...prev,
                         memoryLedger: nextLedger,
                         stats: {
                           ...prev.stats,
-                          dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 1, now),
+                          dailyActivityLog: nextLog,
+                          streakDays: computeRealStreakDays(nextLog, now),
                         },
                       };
                     });
@@ -735,7 +994,18 @@ export const App: React.FC = () => {
                   cards={state.cards}
                   desiredRetention={state.settings.desiredRetention}
                   openAddFormNonce={openAddFormNonce}
-                  onRateCard={handleRateCard}
+                  canUndo={Boolean(lastRatedSnapshot)}
+                  vocabNotifications={state.settings.vocabNotifications}
+                  notificationHistory={state.notificationHistory}
+                  onUpdateVocabNotifications={(patch) =>
+                    handleUpdateSettings({
+                      vocabNotifications: { ...state.settings.vocabNotifications, ...patch },
+                    })
+                  }
+                  onTriggerVocabNotifyNow={() => triggerVocabNotification(true)}
+                  onUndoLastRating={handleUndoLastRating}
+                  onEditCard={handleEditCard}
+                  onRateCard={(id, r) => handleRateCard(id, r)}
                   onAddCard={(inp) => handleAddCard(inp)}
                   onBatchDelete={(ids) => {
                     setState((prev) => ({
@@ -805,14 +1075,19 @@ export const App: React.FC = () => {
                   bestWpm={state.stats.typingWpmBest}
                   soundEffectsEnabled={state.settings.soundEffectsEnabled}
                   onUpdateBestWpm={(wpm) =>
-                    setState((prev) => ({
-                      ...prev,
-                      stats: {
-                        ...prev.stats,
-                        typingWpmBest: wpm,
-                        dailyActivityLog: bumpDailyActivity(prev.stats.dailyActivityLog, 1),
-                      },
-                    }))
+                    setState((prev) => {
+                      const now = Date.now();
+                      const nextLog = bumpDailyActivity(prev.stats.dailyActivityLog, 1, now);
+                      return {
+                        ...prev,
+                        stats: {
+                          ...prev.stats,
+                          typingWpmBest: wpm,
+                          dailyActivityLog: nextLog,
+                          streakDays: computeRealStreakDays(nextLog, now),
+                        },
+                      };
+                    })
                   }
                   onShowToast={showToast}
                 />
@@ -826,9 +1101,14 @@ export const App: React.FC = () => {
                   onUpdateSettings={handleUpdateSettings}
                   onImportBackup={(imported) => setState(imported)}
                   onShowToast={showToast}
+                  onTriggerVocabNotifyNow={() => triggerVocabNotification(true)}
+                  onCleanStart={() => {
+                    setState(createCleanStartState());
+                    showToast('Đã tạo hồ sơ học tập mới (0 giờ, 0 streak) sẵn sàng từ đầu!');
+                  }}
                   onResetAll={() => {
                     setState(createDefaultState());
-                    showToast('Đã khôi phục toàn bộ dữ liệu mẫu T-English v2.0');
+                    showToast('Đã khôi phục toàn bộ dữ liệu mẫu T-English v3.0');
                   }}
                 />
               )}
@@ -840,10 +1120,10 @@ export const App: React.FC = () => {
           {(
             [
               { id: 'dashboard', label: 'Home', icon: <IconDashboard size={15} /> },
-              { id: 'curriculum', label: 'CEFR', icon: <IconCurriculum size={15} /> },
+              { id: 'fsrs', label: 'Từ vựng', icon: <IconCards size={15} /> },
+              { id: 'shadowing', label: 'IPA', icon: <IconWaveform size={15} /> },
               { id: 'tutor', label: 'Tutor', icon: <IconSparkChat size={15} /> },
-              { id: 'writing', label: 'Write', icon: <IconPen size={15} /> },
-              { id: 'fsrs', label: 'FSRS', icon: <IconCards size={15} /> },
+              { id: 'reader', label: 'Đọc', icon: <IconBook size={15} /> },
             ] as Array<{ id: NavTab; label: string; icon: React.ReactNode }>
           ).map((m) => (
             <button
@@ -889,6 +1169,45 @@ export const App: React.FC = () => {
           cards={state.cards}
           onAddStudyMinutes={addStudyMinutes}
           onShowToast={showToast}
+        />
+      )}
+
+      {/* Smart Interactive Floating Vocabulary Notification Card */}
+      {activeNotifCard && (
+        <VocabNotificationPopup
+          card={activeNotifCard}
+          allCards={state.cards}
+          styleMode={state.settings.vocabNotifications.style}
+          soundEffectsEnabled={state.settings.soundEffectsEnabled}
+          onRate={(cardId, rating, outcome) => {
+            handleRateCard(cardId, rating, outcome);
+            setActiveNotifCard(null);
+            showToast(
+              rating >= 3
+                ? `Đã ghi nhớ "${activeNotifCard.word}" (+15 XP · FSRS cập nhật)`
+                : `Đã xếp "${activeNotifCard.word}" vào hàng đợi ôn lại sớm`
+            );
+          }}
+          onSnooze={() => {
+            lastNotifyAtRef.current =
+              Date.now() - Math.max(0, state.settings.vocabNotifications.intervalMinutes - 10) * 60_000;
+            setActiveNotifCard(null);
+            showToast('Sẽ nhắc lại từ vựng sau 10 phút');
+          }}
+          onDismiss={() => {
+            const cid = activeNotifCard.id;
+            setState((prev) => ({
+              ...prev,
+              notificationHistory: prev.notificationHistory.map((item, i) =>
+                i === 0 && item.cardId === cid ? { ...item, outcome: 'dismissed' } : item
+              ),
+            }));
+            setActiveNotifCard(null);
+          }}
+          onOpenDeck={() => {
+            setActiveNotifCard(null);
+            navigateTo('fsrs');
+          }}
         />
       )}
 

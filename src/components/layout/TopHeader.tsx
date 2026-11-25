@@ -1,13 +1,17 @@
 import React from 'react';
 import type { NavTab } from '../../App';
-import type { ThemeMode, ViewportPreview } from '../../core/storage/db';
+import type { SpeechEngine, ThemeMode, ViewportPreview } from '../../core/storage/db';
+import type { SpeechRuntimeState } from '../../core/phonetics/speechIO';
 import {
+  IconBell,
+  IconBellRing,
   IconDeviceMac,
   IconDevicePhone,
   IconMenuBar,
   IconPlus,
   IconSearch,
   IconSidebar,
+  IconStop,
   IconSunMoon,
 } from '../icons/Icons';
 
@@ -24,8 +28,12 @@ interface TopHeaderProps {
   onChangePreview: (mode: ViewportPreview) => void;
   onQuickAddCard: () => void;
   activeTab: NavTab;
-  ttsEngine?: 'system' | 'vieneu';
+  ttsEngine?: SpeechEngine;
+  speechRuntime?: SpeechRuntimeState;
+  onStopSpeaking?: () => void;
   onOpenTtsSettings?: () => void;
+  vocabNotifyEnabled?: boolean;
+  onTriggerVocabNotify?: () => void;
 }
 
 export const TopHeader: React.FC<TopHeaderProps> = ({
@@ -40,8 +48,20 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
   onChangePreview,
   onQuickAddCard,
   ttsEngine = 'system',
+  speechRuntime,
+  onStopSpeaking,
   onOpenTtsSettings,
+  vocabNotifyEnabled = false,
+  onTriggerVocabNotify,
 }) => {
+  const isSpeaking = speechRuntime && speechRuntime.status !== 'idle';
+  const ttsLabel =
+    ttsEngine === 'hybrid'
+      ? 'Hybrid EN+VieNeu'
+      : ttsEngine === 'vieneu'
+        ? 'VieNeu 48kHz'
+        : 'System TTS';
+
   return (
     <header className="top">
       <div className="top-l">
@@ -65,12 +85,25 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       </div>
 
       <div className="acts">
+        {isSpeaking && onStopSpeaking && (
+          <button
+            type="button"
+            className="gb sm hl"
+            onClick={onStopSpeaking}
+            title="Dừng phát giọng đọc hiện tại"
+          >
+            <span className="audio-dot" />
+            <span>{speechRuntime.status === 'loading' ? 'Đang tạo giọng...' : 'Đang đọc'}</span>
+            <IconStop size={11} />
+          </button>
+        )}
+
         <div className="seg hide-mobile" title="Chuyển đổi khung thiết bị Mac / iPhone / Menu Bar">
           <button
             type="button"
             className={preview === 'auto' || preview === 'mac' ? 'on' : ''}
             onClick={() => onChangePreview('auto')}
-            title="Mac Desktop (1180×810)"
+            title="Mac Desktop"
           >
             <IconDeviceMac size={13} />
             <span>Mac</span>
@@ -106,14 +139,26 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
           <kbd>⌘K</kbd>
         </button>
 
+        {onTriggerVocabNotify && (
+          <button
+            type="button"
+            className={`ib ${vocabNotifyEnabled ? 'active' : ''}`}
+            onClick={onTriggerVocabNotify}
+            title="Hiện thông báo học 1 từ vựng ngay lập tức"
+            aria-label="Thông báo học từ vựng ngay"
+          >
+            {vocabNotifyEnabled ? <IconBellRing size={16} /> : <IconBell size={16} />}
+          </button>
+        )}
+
         {onOpenTtsSettings && (
           <button
             type="button"
-            className={`gb sm hide-mobile ${ttsEngine === 'vieneu' ? 'hl' : ''}`}
+            className={`gb sm hide-mobile ${ttsEngine !== 'system' ? 'hl' : ''}`}
             onClick={onOpenTtsSettings}
-            title="Cấu hình Engine giọng đọc (System / VieNeu Local)"
+            title="Cấu hình Engine giọng đọc (Hybrid / VieNeu 48kHz / System)"
           >
-            <span>{ttsEngine === 'vieneu' ? 'VieNeu TTS' : 'System TTS'}</span>
+            <span>{ttsLabel}</span>
           </button>
         )}
 

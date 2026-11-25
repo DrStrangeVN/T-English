@@ -1,7 +1,9 @@
+import { lookupCoreLexicon } from '../../data/coreLexicon';
+
 /**
  * Hybrid Phonetics & IPA Pronunciation Scoring Engine
- * Provides phoneme-level IPA transcription, GOP-inspired alignment scoring,
- * Vietnamese articulatory coaching, and real-time Pitch (F0) extraction.
+ * Provides phoneme-level IPA transcription (backed by Core Lexicon + irregular rules),
+ * GOP-inspired alignment scoring, Vietnamese articulatory coaching, and real-time Pitch (F0) extraction.
  */
 
 export interface PhonemeInfo {
@@ -197,6 +199,8 @@ export function wordToIpa(rawWord: string): string {
   const clean = rawWord.toLowerCase().replace(/[^a-z']/g, '');
   if (!clean) return '';
   if (WORD_IPA_LEXICON[clean]) return WORD_IPA_LEXICON[clean];
+  const fromLexicon = lookupCoreLexicon(clean);
+  if (fromLexicon?.ipa) return fromLexicon.ipa.replace(/^\/|\/$/g, '');
 
   // Deterministic grapheme-to-IPA approximation for unseen words
   let s = clean

@@ -129,7 +129,7 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
             Monkeytype Speed Vocabulary (60 từ)
           </button>
           <button type="button" className={mode === 'dictation' ? 'on' : ''} onClick={() => setMode('dictation')}>
-            DailyDictation Nghe Chép (8 bài)
+            DailyDictation Nghe Chép ({SHADOWING_TRACKS.length} bài)
           </button>
         </div>
 
@@ -297,7 +297,7 @@ export const QwertyDictation: React.FC<QwertyDictationProps> = ({
               <IconVolume size={14} />
               <span>Nghe câu ({dictTrack.accent})</span>
             </button>
-            <button type="button" className="gb" onClick={() => speakEnglish(dictTrack.text, { accent: dictTrack.accent, rate: 0.7 })}>
+            <button type="button" className="gb" onClick={() => speakEnglish(dictTrack.text, { accent: dictTrack.accent, rate: 0.75 })}>
               Nghe chậm (0.7x)
             </button>
             <button type="button" className="gb" onClick={() => setShowHint((h) => !h)}>

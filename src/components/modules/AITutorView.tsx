@@ -14,7 +14,9 @@ interface AITutorViewProps {
   aiConfig: AIConfig;
   memoryLedger: MemoryLedgerItem[];
   savedSessions: Record<string, SavedTutorSession>;
+  customScenarios?: RoleplayScenario[];
   initialTopicPrompt?: string | null;
+  onAddCustomScenario?: (scenario: RoleplayScenario) => void;
   onSaveSession: (scenarioId: string, session: SavedTutorSession) => void;
   onTutorOutcome: (payload: { usedText: string; detectedMistakePattern?: string }) => void;
   onSaveWordToFsrs: (word: string, contextSentence: string) => void;
@@ -40,14 +42,22 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
   aiConfig,
   memoryLedger,
   savedSessions,
+  customScenarios = [],
   initialTopicPrompt,
+  onAddCustomScenario,
   onSaveSession,
   onTutorOutcome,
   onSaveWordToFsrs,
   onRecordPracticeMinutes,
   onShowToast,
 }) => {
-  const [scenario, setScenario] = useState<RoleplayScenario>(ROLEPLAY_SCENARIOS[0]);
+  const allScenarios = [...customScenarios, ...ROLEPLAY_SCENARIOS];
+  const [scenario, setScenario] = useState<RoleplayScenario>(allScenarios[0]);
+  const [showCustomBuilder, setShowCustomBuilder] = useState(false);
+  const [customTitle, setCustomTitle] = useState('');
+  const [customRoleAi, setCustomRoleAi] = useState('Interviewer / Partner');
+  const [customOpening, setCustomOpening] = useState('');
+  const [scenarioFilter, setScenarioFilter] = useState<'All' | RoleplayScenario['category']>('All');
   const currentSession = savedSessions[scenario.id] ?? defaultSessionFor(scenario);
   const turns = currentSession.turns;
   const completedMissions = currentSession.completedMissions;
@@ -499,11 +509,110 @@ export const AITutorView: React.FC<AITutorViewProps> = ({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="panel">
-          <div className="ph">
-            <b>Kịch bản Roleplay &amp; Pattern Drills ({ROLEPLAY_SCENARIOS.length})</b>
+          <div className="ph" style={{ marginBottom: 8 }}>
+            <b>Kịch bản Roleplay ({allScenarios.length})</b>
+            {onAddCustomScenario && (
+              <button
+                type="button"
+                className="gb sm hl"
+                onClick={() => setShowCustomBuilder((v) => !v)}
+              >
+                <IconPlus size={12} />
+                <span>Tự tạo tình huống</span>
+              </button>
+            )}
           </div>
+
+          {showCustomBuilder && onAddCustomScenario && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!customTitle.trim()) return;
+                const created: RoleplayScenario = {
+                  id: `custom-sc-${Date.now()}`,
+                  category: 'Daily Life',
+                  title: customTitle.trim(),
+                  level: 'B2',
+                  roleAi: customRoleAi.trim() || 'AI Conversation Partner',
+                  roleUser: 'Bạn',
+                  openingLine:
+                    customOpening.trim() ||
+                    `Hi! Let's start our roleplay about "${customTitle.trim()}". How would you like to begin?`,
+                  openingLineVi: `Chào bạn! Hãy bắt đầu nhập vai tình huống "${customTitle.trim()}". Bạn muốn mở đầu thế nào?`,
+                  suggestedExpressions: [
+                    'From my perspective, I would like to clarify the main goal first...',
+                    'Could you share more details about the options available?',
+                  ],
+                  targetVocab: ['perspective', 'clarify', 'recommend'],
+                  missions: [
+                    { id: 'm1', labelVi: 'Mở đầu tình huống tự nhiên và rõ ý', checkKeywords: ['hello', 'hi', 'would like', 'perspective', 'could'] },
+                    { id: 'm2', labelVi: 'Đặt ít nhất 1 câu hỏi mở để duy trì hội thoại', checkKeywords: ['what', 'how', 'could', 'would', 'why', '?'] },
+                    { id: 'm3', labelVi: 'Đưa ra đề xuất hoặc kết luận rõ ràng', checkKeywords: ['propose', 'agree', 'plan', 'thank', 'summary', 'decide'] },
+                  ],
+                };
+                onAddCustomScenario(created);
+                handleSelectScenario(created);
+                setCustomTitle('');
+                setCustomOpening('');
+                setShowCustomBuilder(false);
+              }}
+              style={{
+                padding: 10,
+                borderRadius: 12,
+                background: 'var(--raised)',
+                border: '1px solid var(--cyan)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 7,
+                marginBottom: 10,
+              }}
+            >
+              <input
+                className="input-field"
+                required
+                aria-label="Tên tình huống tự tạo"
+                placeholder="VD: Phỏng vấn Visa Mỹ / Đàm phán hợp đồng..."
+                value={customTitle}
+                onChange={(e) => setCustomTitle(e.target.value)}
+              />
+              <input
+                className="input-field"
+                aria-label="Vai diễn của AI"
+                placeholder="Vai AI (VD: Visa Officer / Client CEO)"
+                value={customRoleAi}
+                onChange={(e) => setCustomRoleAi(e.target.value)}
+              />
+              <input
+                className="input-field"
+                aria-label="Câu mở đầu tùy chọn"
+                placeholder="Câu mở đầu của AI (bỏ trống để tự sinh)"
+                value={customOpening}
+                onChange={(e) => setCustomOpening(e.target.value)}
+              />
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                <button type="button" className="gb sm" onClick={() => setShowCustomBuilder(false)}>Hủy</button>
+                <button type="submit" className="pb sm">Tạo &amp; Bắt đầu</button>
+              </div>
+            </form>
+          )}
+
+          <div className="compact-picker-scroll" style={{ marginBottom: 8 }}>
+            {(['All', 'Daily Life', 'Tech & Work', 'IELTS Speaking', 'Pattern Drill'] as const).map((cat) => (
+              <button
+                key={cat}
+                type="button"
+                className={`fp ${scenarioFilter === cat ? 'on' : ''}`}
+                onClick={() => setScenarioFilter(cat)}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 340, overflowY: 'auto' }}>
-            {ROLEPLAY_SCENARIOS.map((sc) => {
+            {allScenarios
+              .filter((sc) => scenarioFilter === 'All' || sc.category === scenarioFilter)
+              .map((sc) => {
               const active = sc.id === scenario.id;
               return (
                 <button

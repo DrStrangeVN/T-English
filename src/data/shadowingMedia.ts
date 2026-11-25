@@ -8,7 +8,7 @@ export interface ShadowingSegment {
   id: string;
   source: string;
   accent: 'US General' | 'UK RP';
-  cefr: 'B1' | 'B2' | 'C1' | 'C2';
+  cefr: 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
   text: string;
   translationVi: string;
   linkingNotes: string[];
@@ -169,5 +169,77 @@ export const SHADOWING_TRACKS: ShadowingSegment[] = [
     ],
     dictationHint: 'N__ only does r_____ c____________ m_______ traffic c_________, but it also f______ deeper a_______.',
     durationSec: 6.4,
+  },
+  {
+    id: 'shad-9',
+    source: 'Daily Survival — Airport & Hotel',
+    accent: 'US General',
+    cefr: 'A2',
+    text: 'Could you tell me where to pick up my luggage and catch the express train downtown?',
+    translationVi: 'Bạn có thể chỉ giúp tôi chỗ lấy hành lý và bắt tàu tốc hành vào trung tâm thành phố không?',
+    linkingNotes: [
+      'Could you → đồng hóa thành /ˈkʊdʒuː/ (Could-ja)',
+      'pick up → nối /k/ sang /ʌ/ thành "pi-kup"',
+    ],
+    connectedSpeechBreakdown: [
+      { raw: 'Could you', naturalIpa: '/ˈkʊdʒ.uː/', ruleVi: 'Hợp nhất /d/ + /j/ thành /dʒ/ cực kỳ phổ biến trong câu nhờ vả lịch sự.' },
+      { raw: 'pick up', naturalIpa: '/pɪk‿ʌp/', ruleVi: 'Nối phụ âm cuối /k/ sang nguyên âm /ʌ/ liền mạch.' },
+    ],
+    dictationHint: 'C____ you t___ me where to p___ up my l______ and c____ the e______ train d_______?',
+    durationSec: 4.5,
+  },
+  {
+    id: 'shad-10',
+    source: 'American Flap-T Mastery — Café Chat',
+    accent: 'US General',
+    cefr: 'B1',
+    text: 'I got a bottle of water and a better seat right by the window this afternoon.',
+    translationVi: 'Mình lấy một chai nước và một chỗ ngồi đẹp hơn ngay sát cửa sổ chiều nay.',
+    linkingNotes: [
+      'got a → Flap-T đọc mềm như /d/ nhẹ: "ga-də"',
+      'bottle / water / better → đều dùng âm Flap-T /ɾ/ chuẩn giọng Mỹ',
+    ],
+    connectedSpeechBreakdown: [
+      { raw: 'got a', naturalIpa: '/ˈɡɑː.ɾə/', ruleVi: 'Âm /t/ kẹp giữa hai nguyên âm biến thành Flap-T /ɾ/ bật nhẹ nhanh.' },
+      { raw: 'bottle of water', naturalIpa: '/ˈbɑː.ɾəl‿əv‿ˈwɔː.ɾər/', ruleVi: 'Hai âm Flap-T nối qua "of" giảm âm /əv/.' },
+    ],
+    dictationHint: 'I g__ a b_____ of w____ and a b_____ s___ right by the w_____ this a________.',
+    durationSec: 4.9,
+  },
+  {
+    id: 'shad-11',
+    source: 'Business Standup — Natural Transitions',
+    accent: 'UK RP',
+    cefr: 'B2',
+    text: 'Just to make sure we are all on the same page, let us wrap up this milestone by Thursday.',
+    translationVi: 'Chỉ để chắc chắn tất cả chúng ta đều thống nhất, hãy chốt xong cột mốc này trước thứ Năm nhé.',
+    linkingNotes: [
+      'make sure → giữ /k/ dừng hơi trước khi bật /ʃ/ tròn môi',
+      'wrap up → nối /p/ sang /ʌ/ thành "ra-pʌp"',
+    ],
+    connectedSpeechBreakdown: [
+      { raw: 'wrap up', naturalIpa: '/ræp‿ʌp/', ruleVi: 'Phụ âm môi /p/ nối trực tiếp sang nguyên âm /ʌ/.' },
+      { raw: 'all on the', naturalIpa: '/ɔːl‿ɒn‿ðə/', ruleVi: 'Nối âm /l/ mượt sang "on" không ngắt quãng.' },
+    ],
+    dictationHint: 'J___ to m___ sure we are all on the s___ page, let us w___ up this m________ by T_______.',
+    durationSec: 5.3,
+  },
+  {
+    id: 'shad-12',
+    source: 'TED Talk — Micro-Habits Compound',
+    accent: 'US General',
+    cefr: 'B2',
+    text: 'Five focused minutes every morning will eventually take you much further than you ever imagined.',
+    translationVi: 'Năm phút tập trung mỗi sáng cuối cùng sẽ đưa bạn tiến xa hơn nhiều so với những gì bạn từng tưởng tượng.',
+    linkingNotes: [
+      'focused minutes → giữ âm đuôi /t/ của "-ed" sau /s/',
+      'ever imagined → nối âm /r/ cuối của "ever" sang nguyên âm /ɪ/',
+    ],
+    connectedSpeechBreakdown: [
+      { raw: 'focused', naturalIpa: '/ˈfəʊ.kəst/', ruleVi: 'Đuôi -ed sau phụ âm vô thanh /s/ PHẢI đọc là /t/, không đọc thành /ɪd/.' },
+      { raw: 'ever imagined', naturalIpa: '/ˈev.ər‿ɪˈmædʒ.ɪnd/', ruleVi: 'Nối mượt âm /r/ sang âm /ɪ/ mở đầu của imagined.' },
+    ],
+    dictationHint: 'F___ f______ minutes every m______ will e_________ take you much f______ than you ever i_______.',
+    durationSec: 5.6,
   },
 ];

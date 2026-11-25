@@ -83,4 +83,21 @@ describe('T-English UI Component & State Persistence Flows', () => {
     const newWordInput = await screen.findByPlaceholderText(/Từ vựng \(VD: ephemeral\)/i);
     expect(newWordInput).toBeTruthy();
   });
+
+  it('triggers interactive Vocabulary Notification Popup from TopHeader bell and records FSRS review', async () => {
+    render(<App />);
+
+    const bellBtn = screen.getByRole('button', { name: /Thông báo học từ vựng ngay/i });
+    fireEvent.click(bellBtn);
+
+    const dialog = await screen.findByRole('dialog', { name: /Thông báo học từ vựng:/i });
+    expect(dialog).toBeTruthy();
+
+    // Switch to Flashcard mode, reveal meaning, and mark Remembered
+    fireEvent.click(screen.getByRole('button', { name: /Đổi Flash/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Lật xem nghĩa/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Đã nhớ/i }));
+
+    expect(screen.queryByRole('dialog', { name: /Thông báo học từ vựng:/i })).toBeNull();
+  });
 });

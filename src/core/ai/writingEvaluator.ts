@@ -1,5 +1,6 @@
 import type { WritingPrompt } from '../../data/writingPrompts';
 import type { AIConfig } from './tutorService';
+import { hasNativeMacBridge, nativeHttpRequest } from '../phonetics/speechIO';
 
 export interface WritingInlineDiff {
   id: string;
@@ -387,25 +388,42 @@ export async function evaluateWritingWithAI(
     }
 
     if (config.provider === 'ollama' && config.ollamaUrl.trim()) {
-      const res = await fetch(`${config.ollamaUrl.replace(/\/$/, '')}/api/chat`, {
-        method: 'POST',
-        signal: controller.signal,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: config.model || 'llama3.2',
-          stream: false,
-          format: 'json',
-          messages: [
-            { role: 'system', content: sysInstruction },
-            { role: 'user', content: text },
-          ],
-        }),
+      const ollamaPayload = JSON.stringify({
+        model: config.model || 'llama3.2',
+        stream: false,
+        format: 'json',
+        messages: [
+          { role: 'system', content: sysInstruction },
+          { role: 'user', content: text },
+        ],
       });
-      if (!res.ok) {
-        return { ...local, source: 'builtin', fallbackReason: `Ollama HTTP ${res.status}` };
+      const endpoint = `${config.ollamaUrl.replace(/\/$/, '')}/api/chat`;
+      let data: { message?: { content?: string } } | null = null;
+      if (hasNativeMacBridge()) {
+        const nr = await nativeHttpRequest({
+          url: endpoint,
+          method: 'POST',
+          body: ollamaPayload,
+          timeoutMs: 18_000,
+          eventChannel: 'http',
+        });
+        if (!nr.ok) {
+          return { ...local, source: 'builtin', fallbackReason: `Ollama HTTP ${nr.status || 'Network'}` };
+        }
+        data = JSON.parse(nr.text || '{}');
+      } else {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: ollamaPayload,
+        });
+        if (!res.ok) {
+          return { ...local, source: 'builtin', fallbackReason: `Ollama HTTP ${res.status}` };
+        }
+        data = await res.json();
       }
-      const data = await res.json();
-      const parsed = JSON.parse(data.message?.content ?? '{}');
+      const parsed = JSON.parse(data?.message?.content ?? '{}');
       if (typeof parsed.overallBand === 'number') {
         return {
           ...local,

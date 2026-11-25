@@ -173,4 +173,43 @@ export const MINIMAL_PAIRS_DATA: MinimalPairContrast[] = [
       { wordA: 'ridge', ipaA: '/rɪdʒ/', meaningViA: 'đỉnh dãy núi', wordB: 'rise', ipaB: '/raɪz/', meaningViB: 'tăng lên', sentenceA: 'The trail climbs steeply along the mountain ridge.', sentenceB: 'Active vocabulary will rise steadily each week.' },
     ],
   },
+  {
+    id: 'mp-ending-ed',
+    phonemeA: 't',
+    phonemeB: 'd',
+    title: 'Đuôi -ed: /t/ (worked) vs /d/ (played)',
+    learnerPainPointVi: 'Người Việt hay đọc mọi đuôi -ed thành "/ɪd/" ("work-kịt", "stop-pịt") hoặc nuốt mất hoàn toàn âm cuối.',
+    mouthContrastVi: 'Sau âm vô thanh (p, k, f, s, ʃ, tʃ) → bật gió nhẹ /t/ (KHÔNG thêm âm tiết). Sau nguyên âm/hữu thanh → bật rung nhẹ /d/. Chỉ sau t/d mới đọc /ɪd/!',
+    pairs: [
+      { wordA: 'worked', ipaA: '/wɜːrkt/', meaningViA: 'đã làm việc', wordB: 'word', ipaB: '/wɜːrd/', meaningViB: 'từ ngữ', sentenceA: 'She worked late to ship the release.', sentenceB: 'Speak every word clearly with ending sounds.' },
+      { wordA: 'backed', ipaA: '/bækt/', meaningViA: 'đã sao lưu', wordB: 'bagged', ipaB: '/bæɡd/', meaningViB: 'đã đóng túi', sentenceA: 'We backed up the FSRS database automatically.', sentenceB: 'He bagged fresh apples at the market.' },
+      { wordA: 'watched', ipaA: '/wɑːtʃt/', meaningViA: 'đã xem', wordB: 'lodged', ipaB: '/lɑːdʒd/', meaningViB: 'đã nộp/đặt', sentenceA: 'I watched an Engoo lesson with dual subtitles.', sentenceB: 'They lodged the bug report this morning.' },
+    ],
+  },
+  {
+    id: 'mp-final-s-z',
+    phonemeA: 's',
+    phonemeB: 'z',
+    title: 'Âm cuối /s/ (price) vs /z/ (prize)',
+    learnerPainPointVi: 'Bỏ quên hoàn toàn âm cuối -s/-z hoặc đọc /z/ thành /s/ vô thanh, làm sai nghĩa danh từ/động từ.',
+    mouthContrastVi: 'Với /s/: Nguyên âm đứng trước ngắn hơn, kết thúc bằng luồng hơi mảnh không rung họng. Với /z/: Kéo dài nguyên âm trước một chút rồi rung cổ họng rõ.',
+    pairs: [
+      { wordA: 'price', ipaA: '/praɪs/', meaningViA: 'giá cả', wordB: 'prize', ipaB: '/praɪz/', meaningViB: 'giải thưởng', sentenceA: 'The software offers pro features at zero price.', sentenceB: 'Her eloquent essay won the top prize.' },
+      { wordA: 'ice', ipaA: '/aɪs/', meaningViA: 'nước đá', wordB: 'eyes', ipaB: '/aɪz/', meaningViB: 'đôi mắt', sentenceA: 'Could I get an iced coffee with less ice?', sentenceB: 'Calm typography is gentle on your eyes.' },
+      { wordA: 'place', ipaA: '/pleɪs/', meaningViA: 'địa điểm', wordB: 'plays', ipaB: '/pleɪz/', meaningViB: 'chơi / đóng vai trò', sentenceA: 'Find a quiet place conducive to deep study.', sentenceB: 'Consistency plays a pivotal role in fluency.' },
+    ],
+  },
+  {
+    id: 'mp-final-clusters',
+    phonemeA: 's',
+    phonemeB: 't',
+    title: 'Cụm phụ âm cuối /-st/ vs /-s/ (test vs less)',
+    learnerPainPointVi: 'Rớt âm /t/ hoặc /k/ trong các cụm phụ âm cuối như "-st, -kt, -ts" (đọc "test" thành "tes", "first" thành "firs").',
+    mouthContrastVi: 'Giữ hơi xì /s/ đủ rõ rồi lập tức chạm đầu lưỡi lên lợi trên bật gọn âm /t/ dứt khoát ngay sau đó.',
+    pairs: [
+      { wordA: 'past', ipaA: '/pæst/', meaningViA: 'quá khứ / đi qua', wordB: 'pass', ipaB: '/pæs/', meaningViB: 'vượt qua', sentenceA: 'Learn from past mistakes stored in your ledger.', sentenceB: 'All twenty-eight unit tests pass cleanly.' },
+      { wordA: 'guest', ipaA: '/ɡest/', meaningViA: 'khách mời', wordB: 'guess', ipaB: '/ɡes/', meaningViB: 'đoán', sentenceA: 'Welcome our guest speaker to the podcast.', sentenceB: 'Try to guess the word from context first.' },
+      { wordA: 'best', ipaA: '/best/', meaningViA: 'tốt nhất', wordB: 'bless', ipaB: '/bles/', meaningViB: 'ban phước', sentenceA: 'Short daily sessions produce the best recall.', sentenceB: 'Good habits bless your future self.' },
+    ],
+  },
 ];

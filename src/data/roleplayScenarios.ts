@@ -8,7 +8,7 @@ export interface RoleplayScenario {
   id: string;
   category: 'Tech & Work' | 'IELTS Speaking' | 'Daily Life' | 'Pattern Drill';
   title: string;
-  level: 'B1' | 'B2' | 'C1' | 'C2';
+  level: 'A1' | 'A2' | 'B1' | 'B2' | 'C1' | 'C2';
   roleAi: string;
   roleUser: string;
   openingLine: string;
@@ -212,6 +212,90 @@ export const ROLEPLAY_SCENARIOS: RoleplayScenario[] = [
       { id: 'm1', labelVi: 'Mở đầu câu bằng "Not only"', checkKeywords: ['not only'] },
       { id: 'm2', labelVi: 'Đảo trợ động từ đúng chuẩn ("does" / "do" / "can")', checkKeywords: ['does', 'do', 'can', 'will'] },
       { id: 'm3', labelVi: 'Nối vế hai bằng "but ... also"', checkKeywords: ['but', 'also'] },
+    ],
+  },
+  {
+    id: 'daily-cafe-a1',
+    category: 'Daily Life',
+    title: 'Ordering Coffee & Pastry at a Café (Survival)',
+    level: 'A1',
+    roleAi: 'Friendly Barista',
+    roleUser: 'Customer',
+    openingLine: 'Hi there! Welcome to Harbor Coffee. What can I get started for you today?',
+    openingLineVi: 'Chào bạn! Chào mừng tới Harbor Coffee. Hôm nay bạn muốn gọi đồ uống gì nào?',
+    suggestedExpressions: [
+      'Hi! Could I have an iced latte with oat milk, please?',
+      'Do you recommend any fresh pastries today?',
+      'That will be all, thank you. Can I pay by card and get a receipt?',
+    ],
+    targetVocab: ['recommend', 'receipt', 'coffee', 'please'],
+    missions: [
+      { id: 'm1', labelVi: 'Gọi đồ uống lịch sự bằng "Could I have / I would like"', checkKeywords: ['could i', 'would like', 'latte', 'coffee', 'tea'] },
+      { id: 'm2', labelVi: 'Hỏi thêm món bánh hoặc nhờ gợi ý (recommend / pastry / size)', checkKeywords: ['recommend', 'pastry', 'croissant', 'size', 'less ice', 'oat'] },
+      { id: 'm3', labelVi: 'Thanh toán và xin hóa đơn (card / pay / receipt)', checkKeywords: ['card', 'pay', 'receipt', 'total', 'thank'] },
+    ],
+  },
+  {
+    id: 'daily-hotel-a2',
+    category: 'Daily Life',
+    title: 'Hotel Check-In & Requesting a Quiet Room',
+    level: 'A2',
+    roleAi: 'Hotel Front Desk Receptionist',
+    roleUser: 'Traveler',
+    openingLine: 'Good evening and welcome to Skyview Hotel! Do you have a reservation with us tonight?',
+    openingLineVi: 'Chào buổi tối và chào mừng tới Skyview Hotel! Tối nay bạn đã đặt phòng trước chưa?',
+    suggestedExpressions: [
+      'Yes, I have a reservation for two nights under my name.',
+      'If possible, could I have a quiet room on a higher floor?',
+      'What time is breakfast served tomorrow morning?',
+    ],
+    targetVocab: ['reservation', 'quiet', 'breakfast', 'luggage'],
+    missions: [
+      { id: 'm1', labelVi: 'Xác nhận đặt phòng trước (reservation / nights)', checkKeywords: ['reservation', 'booked', 'nights', 'name'] },
+      { id: 'm2', labelVi: 'Yêu cầu phòng yên tĩnh hoặc tầng cao (quiet / higher floor)', checkKeywords: ['quiet', 'higher', 'floor', 'window', 'view'] },
+      { id: 'm3', labelVi: 'Hỏi giờ ăn sáng hoặc Wi-Fi / gửi hành lý', checkKeywords: ['breakfast', 'wifi', 'luggage', 'check-out', 'time'] },
+    ],
+  },
+  {
+    id: 'daily-doctor-a2',
+    category: 'Daily Life',
+    title: 'Clinic Visit — Describing Symptoms Clearly',
+    level: 'A2',
+    roleAi: 'General Practitioner',
+    roleUser: 'Patient',
+    openingLine: 'Hello, please have a seat. What brings you into the clinic today, and how long have you felt this way?',
+    openingLineVi: 'Chào bạn, mời ngồi. Hôm nay bạn thấy trong người thế nào và triệu chứng kéo dài bao lâu rồi?',
+    suggestedExpressions: [
+      'I have had a sore throat and mild fever since Tuesday evening.',
+      'I also feel quite exhausted and have a slight cough at night.',
+      'How many times a day should I take this medicine?',
+    ],
+    targetVocab: ['exhausted', 'fever', 'symptoms', 'medicine'],
+    missions: [
+      { id: 'm1', labelVi: 'Mô tả triệu chứng cụ thể (sore throat / headache / fever / cough)', checkKeywords: ['throat', 'fever', 'cough', 'headache', 'pain', 'tired', 'exhausted'] },
+      { id: 'm2', labelVi: 'Nêu thời gian bị bệnh (since / for two days)', checkKeywords: ['since', 'days', 'yesterday', 'morning', 'week'] },
+      { id: 'm3', labelVi: 'Hỏi liều dùng thuốc hoặc lời khuyên nghỉ ngơi', checkKeywords: ['medicine', 'take', 'rest', 'times', 'drink', 'pharmacy'] },
+    ],
+  },
+  {
+    id: 'work-intro-b1',
+    category: 'Tech & Work',
+    title: 'Job Interview — "Tell Me About Yourself"',
+    level: 'B1',
+    roleAi: 'Hiring Manager',
+    roleUser: 'Applicant',
+    openingLine: 'Thanks for joining today! To kick things off, could you tell me a bit about your background and what excites you about this role?',
+    openingLineVi: 'Cảm ơn bạn đã tham gia hôm nay! Để bắt đầu, bạn có thể giới thiệu ngắn về kinh nghiệm và điều gì khiến bạn hứng thú với vị trí này?',
+    suggestedExpressions: [
+      'Over the past three years, I have focused on building fast, user-friendly products...',
+      'One project I am particularly proud of improved team efficiency by 30%...',
+      'I am excited to collaborate with your team and take on greater ownership.',
+    ],
+    targetVocab: ['collaborate', 'efficiency', 'proud', 'prioritize'],
+    missions: [
+      { id: 'm1', labelVi: 'Tóm tắt kinh nghiệm quá khứ (years / experience / built)', checkKeywords: ['years', 'experience', 'worked', 'built', 'background'] },
+      { id: 'm2', labelVi: 'Nêu 1 thành tựu nổi bật có kết quả cụ thể (improved / proud / impact)', checkKeywords: ['proud', 'improved', 'impact', 'launched', 'project', 'results'] },
+      { id: 'm3', labelVi: 'Kết nối lý do muốn gia nhập công ty (excited / collaborate / role)', checkKeywords: ['excited', 'collaborate', 'team', 'role', 'contribute', 'grow'] },
     ],
   },
 ];

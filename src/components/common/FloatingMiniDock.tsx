@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { FsrsCard } from '../../core/fsrs/fsrsEngine';
-import { speakEnglish, stopSpeaking } from '../../core/phonetics/speechIO';
-import { IconClock, IconPlay, IconRepeat, IconVolume } from '../icons/Icons';
+import { speakBilingual, speakEnglish, stopSpeaking } from '../../core/phonetics/speechIO';
+import { IconClock, IconHeadphones, IconPlay, IconRepeat, IconVolume } from '../icons/Icons';
 
 interface FloatingMiniDockProps {
   cards: FsrsCard[];
@@ -17,6 +17,7 @@ export const FloatingMiniDock: React.FC<FloatingMiniDockProps> = ({
   const [secondsLeft, setSecondsLeft] = useState(25 * 60);
   const [timerRunning, setTimerRunning] = useState(false);
   const [audioLooping, setAudioLooping] = useState(false);
+  const [bilingualLoop, setBilingualLoop] = useState(true);
   const [loopIndex, setLoopIndex] = useState(0);
 
   useEffect(() => {
@@ -26,7 +27,7 @@ export const FloatingMiniDock: React.FC<FloatingMiniDockProps> = ({
         if (s <= 1) {
           setTimerRunning(false);
           onAddStudyMinutes(25);
-          onShowToast('Hoàn thành phiên Pomodoro 25 phút (+25m vào lộ trình 1,000 Giờ)');
+          onShowToast('Hoàn thành phiên Pomodoro 25 phút (+25m & +250 XP)');
           return 25 * 60;
         }
         return s - 1;
@@ -41,22 +42,31 @@ export const FloatingMiniDock: React.FC<FloatingMiniDockProps> = ({
     let cancelled = false;
 
     const cleanSentence = card.clozeSentence.replace(/\{\{|\}\}/g, '');
-    speakEnglish(`${card.word}. ${cleanSentence}`, {
-      rate: 0.92,
-      onEnd: () => {
-        if (!cancelled) {
-          window.setTimeout(() => {
-            if (!cancelled) setLoopIndex((i) => (i + 1) % cards.length);
-          }, 900);
-        }
-      },
-    });
+    const scheduleNext = () => {
+      if (!cancelled) {
+        window.setTimeout(() => {
+          if (!cancelled) setLoopIndex((i) => (i + 1) % cards.length);
+        }, 900);
+      }
+    };
+
+    if (bilingualLoop) {
+      speakBilingual(`${card.word}. ${cleanSentence}`, card.meaningVi, {
+        rate: 0.94,
+        onEnd: scheduleNext,
+      });
+    } else {
+      speakEnglish(`${card.word}. ${cleanSentence}`, {
+        rate: 0.94,
+        onEnd: scheduleNext,
+      });
+    }
 
     return () => {
       cancelled = true;
       stopSpeaking();
     };
-  }, [audioLooping, loopIndex, cards]);
+  }, [audioLooping, bilingualLoop, loopIndex, cards]);
 
   const mm = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const ss = String(secondsLeft % 60).padStart(2, '0');
@@ -87,6 +97,16 @@ export const FloatingMiniDock: React.FC<FloatingMiniDockProps> = ({
       >
         {audioLooping ? <IconRepeat size={12} /> : <IconPlay size={12} />}
         <span>{audioLooping && currentCard ? currentCard.word : 'Audio Loop'}</span>
+      </button>
+
+      <button
+        type="button"
+        className={`ib sm ${bilingualLoop ? 'active' : ''}`}
+        onClick={() => setBilingualLoop((v) => !v)}
+        title={bilingualLoop ? 'Đang bật Podcast song ngữ (EN + VieNeu VI)' : 'Đang phát chỉ tiếng Anh'}
+        aria-label="Bật tắt phát lặp song ngữ"
+      >
+        <IconHeadphones size={13} />
       </button>
 
       {currentCard && (

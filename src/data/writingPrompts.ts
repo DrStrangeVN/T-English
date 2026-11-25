@@ -1,3 +1,10 @@
+export interface WritingChartSpec {
+  kind: 'bar' | 'line';
+  unit: string;
+  caption: string;
+  series: Array<{ label: string; value: number; secondary?: number; color?: string }>;
+}
+
 export interface WritingPrompt {
   id: string;
   category: 'IELTS Task 2' | 'IELTS Task 1' | 'Tech RFC & Workplace';
@@ -6,6 +13,7 @@ export interface WritingPrompt {
   timeLimitMin: number;
   minWords: number;
   promptText: string;
+  chart?: WritingChartSpec;
   outlineVi: string[];
   band8Lexicon: Array<{ phrase: string; meaningVi: string }>;
   starterDraft: string;
@@ -135,6 +143,16 @@ export const WRITING_PROMPTS: WritingPrompt[] = [
     minWords: 150,
     promptText:
       'The chart compares average speech recognition latency (ms) and hourly server cost across Cloud API, Hybrid Edge, and On-Device Apple Silicon pipelines between 2022 and 2026. Summarize the main features and make comparisons.',
+    chart: {
+      kind: 'bar',
+      unit: 'ms',
+      caption: '2026 Speech Recognition Latency (ms) — 2022 Baseline vs 2026',
+      series: [
+        { label: 'Cloud API', value: 420, secondary: 680, color: 'var(--rose)' },
+        { label: 'Hybrid Edge', value: 230, secondary: 590, color: 'var(--amber)' },
+        { label: 'On-Device Apple Silicon', value: 110, secondary: 540, color: 'var(--green)' },
+      ],
+    },
     outlineVi: [
       'Mở bài: Paraphrase đề bài so sánh độ trễ (ms) & chi phí giờ của 3 kiến trúc giai đoạn 2022–2026.',
       'Overview: Cả 3 đều giảm độ trễ, trong đó On-Device giảm mạnh nhất (<120ms) và chi phí server bằng 0.',
@@ -162,6 +180,16 @@ export const WRITING_PROMPTS: WritingPrompt[] = [
     minWords: 150,
     promptText:
       'The bar chart illustrates 90-day vocabulary recall percentages and average daily review minutes across three study methods: Cramming, Classic SM-2, and FSRS v5 across four age groups.',
+    chart: {
+      kind: 'bar',
+      unit: '% recall',
+      caption: '90-Day Vocabulary Recall Rate (%) vs Daily Minutes',
+      series: [
+        { label: 'Cramming', value: 18, secondary: 42, color: 'var(--rose)' },
+        { label: 'Classic SM-2', value: 78, secondary: 26, color: 'var(--amber)' },
+        { label: 'FSRS v5', value: 91, secondary: 18, color: 'var(--green)' },
+      ],
+    },
     outlineVi: [
       'Mở bài: Giới thiệu biểu đồ cột so sánh tỷ lệ nhớ sau 90 ngày và thời gian ôn mỗi ngày.',
       'Overview: FSRS v5 đạt tỷ lệ nhớ cao nhất (~91%) với số phút ôn ít hơn 30% so với SM-2.',
@@ -189,6 +217,18 @@ export const WRITING_PROMPTS: WritingPrompt[] = [
     minWords: 150,
     promptText:
       'The table presents how learners who reached CEFR C1 within 12 months allocated their weekly hours across Listening Input, Shadowing, AI Conversation, FSRS Review, and Writing Feedback.',
+    chart: {
+      kind: 'bar',
+      unit: '% time',
+      caption: 'Weekly Study Time Allocation of C1 Achievers (%)',
+      series: [
+        { label: 'Input (Listen/Read)', value: 45, color: 'var(--cyan)' },
+        { label: 'Shadowing IPA', value: 18, color: 'var(--indigo)' },
+        { label: 'AI Speaking', value: 14, color: 'var(--green)' },
+        { label: 'FSRS Review', value: 13, color: 'var(--amber)' },
+        { label: 'Writing Lab', value: 10, color: 'var(--pink)' },
+      ],
+    },
     outlineVi: [
       'Mở bài: Paraphrase bảng phân bổ thời gian học hàng tuần của nhóm đạt C1 sau 12 tháng.',
       'Overview: Nghe/Đọc thụ đắc chiếm tỷ trọng lớn nhất (45%), tiếp đến là luyện Nói/Shadowing (30%).',
@@ -215,6 +255,18 @@ export const WRITING_PROMPTS: WritingPrompt[] = [
     minWords: 150,
     promptText:
       'The diagram illustrates the five-stage pipeline transforming raw microphone audio into phoneme-level IPA scores and articulatory feedback inside a native Apple application.',
+    chart: {
+      kind: 'bar',
+      unit: 'ms',
+      caption: 'Stage Processing Budget in On-Device Speech-to-IPA Pipeline (ms)',
+      series: [
+        { label: '1. Mic Capture & VAD', value: 18, color: 'var(--cyan)' },
+        { label: '2. Pitch F0 & Features', value: 22, color: 'var(--indigo)' },
+        { label: '3. Speech Recognition', value: 48, color: 'var(--amber)' },
+        { label: '4. IPA Alignment (GOP)', value: 14, color: 'var(--green)' },
+        { label: '5. Mouth SVG Feedback', value: 8, color: 'var(--pink)' },
+      ],
+    },
     outlineVi: [
       'Mở bài: Giới thiệu sơ đồ quy trình 5 bước biến âm thanh micro thành điểm IPA.',
       'Overview: Quy trình khép kín gồm thu âm PCM, tách tần số F0 & nhận diện từ, đối sánh IPA và phản hồi.',
